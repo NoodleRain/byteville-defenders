@@ -2,7 +2,7 @@
 
 ## Reporting a problem
 
-Please do not open a public issue for a security problem. Use GitHub's **Report a vulnerability** button under this repository's **Security** tab, or email **[YOUR CONTACT EMAIL]**.
+Please do not open a public issue for a security problem. Use GitHub's **Report a vulnerability** button under this repository's **Security** tab, or email **noodlerain9@gmail.com**.
 
 Include what you found, how to reproduce it, and what could happen. You'll get a reply within 7 days. Please give the author a reasonable amount of time to fix the problem before you share it publicly.
 
