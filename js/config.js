@@ -2,7 +2,7 @@
 window.BYTEVILLE_CONFIG = {
   // Paste your Google Apps Script web app URL here to collect student answers.
   // Leave it empty ("") and the game still works; data then stays in each student's browser.
-  trackingUrl: "",
+  trackingUrl: "https://script.google.com/macros/s/AKfycbzMD0hVF3PYUIhTZzdtK6Plrro5yQJyA7psHDD6s96dDJP8v2XWCVJGLnyG_68eZUk/exec",
 
   // Optional: must match CLASS_KEY in backend/Code.gs. Stops random people from writing to your sheet.
   classKey: "",
