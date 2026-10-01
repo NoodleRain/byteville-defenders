@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Byteville Defenders</title>
+<meta name="description" content="A guided cybersecurity game. Learn security controls, firewalls, IDS and IPS by protecting a small town.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 5v8c0 8-6 13-12 15C10 28 4 23 4 15V7z' fill='%2317807E'/%3E%3Cpath d='M10 16l4 4 8-9' stroke='%23F5A623' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Lexend:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="site-head">
+  <div class="head-in">
+    <a href="#" class="logo" data-go="map" aria-label="Byteville Defenders home">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 3l14 6v10c0 9-7 15-14 18C13 34 6 28 6 19V9z" fill="#17807E"/><path d="M12 22l6-6 4 4 7-7" stroke="#F5A623" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="12" y="25" width="16" height="4" rx="2" fill="#FFFDF8"/></svg>
+      <span>Byteville <b>Defenders</b></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#" data-go="map">Town Map</a>
+      <a href="#" data-go="badges">Badges</a>
+      <a href="#" data-go="help">How to Play</a>
+    </nav>
+    <div id="navPlayer"></div>
+  </div>
+</header>
+
+<main id="app" class="wrap"></main>
+
+<footer class="site-foot">
+  <div class="wrap foot-in">
+    <span>Byteville Defenders · a cybersecurity training camp</span>
+    <span>Made for CYBR 2000 Introduction to Cybersecurity</span>
+  </div>
+</footer>
+
+<div id="overlay" class="overlay" hidden><div id="modal" class="modal" role="dialog" aria-modal="true"></div></div>
+<div id="toast" class="toast" hidden aria-live="polite"></div>
+
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

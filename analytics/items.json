@@ -1,0 +1,551 @@
+[
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-check",
+  "kind": "quick check",
+  "prompt": "Someone changes your grade from a C to an A without permission. Which part of CIA is broken?",
+  "answer": "Integrity"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s1",
+  "kind": "sort",
+  "prompt": "A stranger reads your private messages.",
+  "answer": "Confidentiality"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s2",
+  "kind": "sort",
+  "prompt": "A hacker changes the price of shoes on a store website to $1.",
+  "answer": "Integrity"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s3",
+  "kind": "sort",
+  "prompt": "The school website crashes on the first day of class.",
+  "answer": "Availability"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s4",
+  "kind": "sort",
+  "prompt": "Your friend watches over your shoulder as you type your PIN.",
+  "answer": "Confidentiality"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s5",
+  "kind": "sort",
+  "prompt": "A virus edits files so the numbers in them are wrong.",
+  "answer": "Integrity"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s6",
+  "kind": "sort",
+  "prompt": "A storm knocks out power to the server room.",
+  "answer": "Availability"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s7",
+  "kind": "sort",
+  "prompt": "Thousands of fake visitors flood a game server, so real players cannot log in.",
+  "answer": "Availability"
+ },
+ {
+  "chapter": "c1",
+  "place": "Town Hall",
+  "topic": "What is cybersecurity?",
+  "item_id": "c1-s8",
+  "kind": "sort",
+  "prompt": "Someone posts your password online.",
+  "answer": "Confidentiality"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-check",
+  "kind": "quick check",
+  "prompt": "Which one is MFA?",
+  "answer": "A password and a code sent to your phone"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-p1",
+  "kind": "choice",
+  "prompt": "Which password is stronger?",
+  "answer": "blue-river-pizza-cloud"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-p2",
+  "kind": "choice",
+  "prompt": "Which password is stronger?",
+  "answer": "maple-guitar-orbit-sock"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-p3",
+  "kind": "choice",
+  "prompt": "Which password is stronger?",
+  "answer": "correct-horse-lamp-yellow"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-p4",
+  "kind": "choice",
+  "prompt": "Which habit is safer?",
+  "answer": "A different password on every site, saved in a password manager"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-p5",
+  "kind": "choice",
+  "prompt": "Which password is stronger?",
+  "answer": "Qz8#mL2!vR9p"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-q1",
+  "kind": "choice",
+  "prompt": "You get a text with a login code you did not ask for. What should you do?",
+  "answer": "Ignore the code and change your password"
+ },
+ {
+  "chapter": "c2",
+  "place": "The Locksmith",
+  "topic": "Passwords and MFA",
+  "item_id": "c2-q2",
+  "kind": "choice",
+  "prompt": "A friend asks for your game password so they can level up your character. What do you do?",
+  "answer": "Say no, and keep your password private"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-check",
+  "kind": "quick check",
+  "prompt": "Which is the biggest red flag?",
+  "answer": "The email asks you to type your password on a link"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e1",
+  "kind": "inbox",
+  "prompt": "Netflix: Account suspended! Update payment in 2 hours",
+  "answer": "Phish"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e2",
+  "kind": "inbox",
+  "prompt": "Ms. Carter: Reminder: quiz moved to Friday",
+  "answer": "Safe"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e3",
+  "kind": "inbox",
+  "prompt": "Roblox Rewards: YOU WON 10,000 ROBUX!!!",
+  "answer": "Phish"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e4",
+  "kind": "inbox",
+  "prompt": "Principal Grant: Quick favor, keep it secret",
+  "answer": "Phish"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e5",
+  "kind": "inbox",
+  "prompt": "USPS: Package on hold",
+  "answer": "Phish"
+ },
+ {
+  "chapter": "c3",
+  "place": "Post Office",
+  "topic": "Spotting phishing",
+  "item_id": "c3-e6",
+  "kind": "inbox",
+  "prompt": "Library: Your book is due Monday",
+  "answer": "Safe"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-check",
+  "kind": "quick check",
+  "prompt": "A security camera is mainly a...",
+  "answer": "Detect control"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s1",
+  "kind": "sort",
+  "prompt": "A lock on the server room door",
+  "answer": "Prevent"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s2",
+  "kind": "sort",
+  "prompt": "A firewall that blocks bad traffic",
+  "answer": "Prevent"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s3",
+  "kind": "sort",
+  "prompt": "Multi-factor authentication (MFA)",
+  "answer": "Prevent"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s4",
+  "kind": "sort",
+  "prompt": "A security camera in the hallway",
+  "answer": "Detect"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s5",
+  "kind": "sort",
+  "prompt": "An alert when someone logs in at 3 AM from another country",
+  "answer": "Detect"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s6",
+  "kind": "sort",
+  "prompt": "An intrusion detection system (IDS)",
+  "answer": "Detect"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s7",
+  "kind": "sort",
+  "prompt": "Restoring files from last night's backup",
+  "answer": "Fix"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s8",
+  "kind": "sort",
+  "prompt": "Antivirus removing a virus it found",
+  "answer": "Fix"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-s9",
+  "kind": "sort",
+  "prompt": "Rebuilding a laptop after ransomware",
+  "answer": "Fix"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-k1",
+  "kind": "choice",
+  "prompt": "A tall fence around the data center",
+  "answer": "Physical"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-k2",
+  "kind": "choice",
+  "prompt": "Encrypting files so only the owner can read them",
+  "answer": "Technical"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-k3",
+  "kind": "choice",
+  "prompt": "A school rule: \"Never share your password\"",
+  "answer": "Administrative"
+ },
+ {
+  "chapter": "c4",
+  "place": "Hardware Store",
+  "topic": "Security controls",
+  "item_id": "c4-k4",
+  "kind": "choice",
+  "prompt": "Training every student to spot phishing",
+  "answer": "Administrative"
+ },
+ {
+  "chapter": "c5",
+  "place": "City Gate",
+  "topic": "Firewalls",
+  "item_id": "c5-check",
+  "kind": "quick check",
+  "prompt": "The firewall rule is \"Allow port 443 only.\" A packet wants port 3389. What happens?",
+  "answer": "Blocked"
+ },
+ {
+  "chapter": "c5",
+  "place": "City Gate",
+  "topic": "Firewalls",
+  "item_id": "c5-lane-website-ok",
+  "kind": "gate",
+  "prompt": "Gate Duty: website ok packets",
+  "answer": "ALLOW"
+ },
+ {
+  "chapter": "c5",
+  "place": "City Gate",
+  "topic": "Firewalls",
+  "item_id": "c5-lane-bad-port",
+  "kind": "gate",
+  "prompt": "Gate Duty: bad port packets",
+  "answer": "BLOCK"
+ },
+ {
+  "chapter": "c5",
+  "place": "City Gate",
+  "topic": "Firewalls",
+  "item_id": "c5-lane-blocklist",
+  "kind": "gate",
+  "prompt": "Gate Duty: blocklist packets",
+  "answer": "BLOCK"
+ },
+ {
+  "chapter": "c6",
+  "place": "Rule Workshop",
+  "topic": "Firewall rule order",
+  "item_id": "c6-check",
+  "kind": "quick check",
+  "prompt": "Where should \"Block everything\" go?",
+  "answer": "At the bottom"
+ },
+ {
+  "chapter": "c6",
+  "place": "Rule Workshop",
+  "topic": "Firewall rule order",
+  "item_id": "c6-o1",
+  "kind": "rule order",
+  "prompt": "Let website visitors in. Keep everything else out.",
+  "answer": "all tests pass"
+ },
+ {
+  "chapter": "c6",
+  "place": "Rule Workshop",
+  "topic": "Firewall rule order",
+  "item_id": "c6-o2",
+  "kind": "rule order",
+  "prompt": "Let website visitors in, except the known bad IP 203.0.113.66.",
+  "answer": "all tests pass"
+ },
+ {
+  "chapter": "c6",
+  "place": "Rule Workshop",
+  "topic": "Firewall rule order",
+  "item_id": "c6-o3",
+  "kind": "rule order",
+  "prompt": "Only the IT laptop (10.0.5.20) may use remote login on port 22. Websites stay open to all.",
+  "answer": "all tests pass"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-check",
+  "kind": "quick check",
+  "prompt": "What does an IDS do when it finds an attack?",
+  "answer": "Raises an alert"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w1",
+  "kind": "choice",
+  "prompt": "Message: Search: ' OR 1=1 --",
+  "answer": "Alert"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w2",
+  "kind": "choice",
+  "prompt": "Message: Show me the school calendar",
+  "answer": "Normal"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w3",
+  "kind": "choice",
+  "prompt": "Message: Comment: <script>steal()</script>",
+  "answer": "Alert"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w4",
+  "kind": "choice",
+  "prompt": "Message: Search: script for the school play",
+  "answer": "Normal"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w5",
+  "kind": "choice",
+  "prompt": "Activity: A school laptop sends 5 GB to an unknown server at 3:12 AM",
+  "answer": "Alert"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w6",
+  "kind": "choice",
+  "prompt": "Activity: A student downloads a 20 MB PDF for class at 10 AM",
+  "answer": "Normal"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w7",
+  "kind": "choice",
+  "prompt": "Message: Get file: ../../secret/grades.txt",
+  "answer": "Alert"
+ },
+ {
+  "chapter": "c7",
+  "place": "Watchtower",
+  "topic": "Intrusion detection (IDS)",
+  "item_id": "c7-w8",
+  "kind": "choice",
+  "prompt": "Activity: The same account fails to log in 50 times in one minute",
+  "answer": "Alert"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-check",
+  "kind": "quick check",
+  "prompt": "The IPS blocks a student's real homework upload by mistake. This is a...",
+  "answer": "False positive"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-lane-clean",
+  "kind": "gate",
+  "prompt": "Night Shift: clean packets",
+  "answer": "ALLOW"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-lane-tricky-clean",
+  "kind": "gate",
+  "prompt": "Night Shift: tricky clean packets",
+  "answer": "ALLOW"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-lane-signature",
+  "kind": "gate",
+  "prompt": "Night Shift: signature packets",
+  "answer": "BLOCK"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-lane-bad-port",
+  "kind": "gate",
+  "prompt": "Night Shift: bad port packets",
+  "answer": "BLOCK"
+ },
+ {
+  "chapter": "c8",
+  "place": "Guard Post",
+  "topic": "IPS and defense in depth",
+  "item_id": "c8-lane-blocklist",
+  "kind": "gate",
+  "prompt": "Night Shift: blocklist packets",
+  "answer": "BLOCK"
+ }
+]
