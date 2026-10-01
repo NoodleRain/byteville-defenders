@@ -82,4 +82,4 @@ Found a security problem? Please read [SECURITY.md](SECURITY.md) and report it p
 
 ## License
 
-© 2026 [YOUR NAME]. All rights reserved. You may play the hosted game for free. Using it in a school, course, or product, or redistributing it, requires written permission. See [LICENSE](LICENSE).
+© 2026 NoodleRain. All rights reserved. You may play the hosted game for free. Using it in a school, course, or product, or redistributing it, requires written permission. See [LICENSE](LICENSE).
