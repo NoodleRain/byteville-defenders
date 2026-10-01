@@ -1,711 +1,4 @@
-"use strict";
-(() => {
-  // src/content.ts
-  var pick = (a) => a[Math.floor(Math.random() * a.length)];
-  var n = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
-  var BLOCKLIST = ["203.0.113.66", "192.0.2.99"];
-  var PEOPLE = ["a student at home", "a parent", "a phone on school Wi-Fi", "a visitor from Texas", "a library computer", "a laptop at a cafe"];
-  var goodIp = () => {
-    let ip = "";
-    do {
-      ip = pick(["198.51.100.", "203.0.113.", "192.0.2."]) + n(2, 250);
-    } while (BLOCKLIST.includes(ip));
-    return ip;
-  };
-  var PORT_NAMES = {
-    80: "HTTP (website)",
-    443: "HTTPS (secure website)",
-    22: "SSH (remote login)",
-    23: "Telnet (old, unsafe login)",
-    21: "FTP (file transfer)",
-    445: "SMB (file sharing)",
-    3389: "RDP (remote desktop)",
-    3306: "MySQL (database)"
-  };
-  var BAD_PORT_WHY = {
-    22: "Port 22 is remote login. Strangers try to guess passwords on it all day.",
-    23: "Port 23 is Telnet. It sends passwords as plain text. Keep it shut.",
-    21: "Port 21 is file transfer. A website does not need it.",
-    445: "Port 445 is file sharing. The WannaCry worm spread through it in 2017.",
-    3389: "Port 3389 is remote desktop. Ransomware gangs love finding it open.",
-    3306: "Port 3306 is a database. Databases should never face the Internet."
-  };
-  var SIGNATURES = [
-    ["OR 1=1", "tricks a database (SQL injection)"],
-    ["<script>", "sneaks code into a web page"],
-    ["../", "tries to climb into other folders"]
-  ];
-  var CLEAN_MSG = ["Show me the school calendar", "Search: library hours", "Login: maya.r (password ok)", "Upload: science_project.pdf", "Search: script for the school play", "Search: 1 or 2 day field trip", "Comment: Great game last night!"];
-  var BAD_MSG = [
-    ["Search: ' OR 1=1 --", "OR 1=1"],
-    ["Login: admin' OR 1=1 --", "OR 1=1"],
-    ["Comment: <script>steal()<\/script>", "<script>"],
-    ["Get file: ../../secret/grades.txt", "../"]
-  ];
-  var TRICKY = {
-    "Search: script for the school play": 'It says "script", but not "<script>". A signature has to match exactly. This one is normal.',
-    "Search: 1 or 2 day field trip": '"1 or 2" is not "OR 1=1". Just a normal search.'
-  };
-  function shuffle(a) {
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-  var pid = 0;
-  var id = (p) => `${p}-${++pid}`;
-  function gatePackets() {
-    const good = () => {
-      const port = pick([443, 443, 80]);
-      return {
-        id: id("gate"),
-        cat: "website-ok",
-        from: goodIp(),
-        who: pick(PEOPLE),
-        port,
-        allow: true,
-        why: port === 443 ? "Port 443 is a secure website. It is on the allow list." : "Port 80 is a website. It is on the allow list."
-      };
-    };
-    const badPort = () => {
-      const port = pick([22, 23, 21, 445, 3389, 3306]);
-      return {
-        id: id("gate"),
-        cat: "bad-port",
-        from: goodIp(),
-        who: pick(PEOPLE.concat(["unknown sender"])),
-        port,
-        allow: false,
-        why: BAD_PORT_WHY[port] + " Only 80 and 443 are allowed."
-      };
-    };
-    const badIp = () => {
-      const ip = pick(BLOCKLIST);
-      return {
-        id: id("gate"),
-        cat: "blocklist",
-        from: ip,
-        who: "unknown sender",
-        port: pick([443, 80]),
-        allow: false,
-        why: `The port is fine, but ${ip} is on the blocklist. The blocklist rule is checked first.`
-      };
-    };
-    const list = shuffle([good(), good(), good(), good(), good(), badPort(), badPort(), badPort(), badIp(), badIp()]);
-    list[n(3, 8)].golden = true;
-    return list;
-  }
-  function guardPackets() {
-    const clean = () => {
-      const m = pick(CLEAN_MSG);
-      return {
-        id: id("guard"),
-        cat: TRICKY[m] ? "tricky-clean" : "clean",
-        from: goodIp(),
-        who: pick(PEOPLE),
-        port: pick([443, 443, 80]),
-        msg: m,
-        allow: true,
-        why: TRICKY[m] || "Good IP, allowed port, clean message. Let it in."
-      };
-    };
-    const attack = () => {
-      const [m, sig] = pick(BAD_MSG);
-      const s = SIGNATURES.find((x) => x[0] === sig);
-      return {
-        id: id("guard"),
-        cat: "signature",
-        from: goodIp(),
-        who: pick(PEOPLE),
-        port: pick([443, 80]),
-        msg: m,
-        allow: false,
-        why: `The port is allowed, but the message has "${s[0]}". That ${s[1]}. Block it.`
-      };
-    };
-    const badPort = () => {
-      const port = pick([22, 3389, 445]);
-      return {
-        id: id("guard"),
-        cat: "bad-port",
-        from: goodIp(),
-        who: "unknown sender",
-        port,
-        msg: pick(CLEAN_MSG),
-        allow: false,
-        why: BAD_PORT_WHY[port] + " The message looks fine, but the door is closed."
-      };
-    };
-    const badIp = () => {
-      const ip = pick(BLOCKLIST);
-      return {
-        id: id("guard"),
-        cat: "blocklist",
-        from: ip,
-        who: "unknown sender",
-        port: 443,
-        msg: pick(CLEAN_MSG),
-        allow: false,
-        why: `${ip} is on the blocklist. It does not matter how nice the message looks.`
-      };
-    };
-    const list = shuffle([clean(), clean(), clean(), clean(), clean(), attack(), attack(), attack(), badPort(), badPort(), badIp(), badIp()]);
-    list[n(4, 11)].golden = true;
-    return list;
-  }
-  var CHAPTERS = [
-    {
-      id: "c1",
-      num: 1,
-      place: "Town Hall",
-      topic: "What is cybersecurity?",
-      minutes: 5,
-      icon: "hall",
-      color: "#F5A623",
-      badge: "First Steps",
-      lessons: [
-        {
-          title: "Welcome to Byteville",
-          art: "town",
-          body: [
-            "Byteville runs on computers. The school keeps grades on them. The bank keeps money records. The hospital keeps patient files. Even the traffic lights are online.",
-            "<b>Cybersecurity</b> means protecting computers, phones, networks, and the information on them from people who want to <b>steal</b> it, <b>change</b> it, or <b>break</b> it.",
-            "Your job: help Byteville stay safe. I will teach you one idea at a time. Then you will practice it."
-          ]
-        },
-        {
-          title: "The CIA Triad",
-          art: "cia",
-          body: [
-            "No, not the spy agency. In security, CIA stands for three things we protect.",
-            '<span class="term c">Confidentiality</span> Only the right people can see it. Like a lock on your diary.',
-            `<span class="term i">Integrity</span> Nobody secretly changes it. Like a teacher's grade book that only the teacher can edit.`,
-            '<span class="term a">Availability</span> It works when you need it. Like the school website on the first day of class.'
-          ],
-          fact: "Almost every attack breaks at least one of these three. Spotting which one helps you choose the right defense."
-        },
-        {
-          title: "Who attacks, and why?",
-          art: "attackers",
-          body: [
-            "Most attackers want <b>money</b>. Ransomware locks a school's files and demands payment to unlock them.",
-            "Some want <b>secrets</b>, like passwords or test answers. Some just want to <b>show off</b>.",
-            "The good news: simple habits and good tools stop most attacks. That is what you will learn here."
-          ]
-        }
-      ],
-      check: {
-        id: "c1-check",
-        prompt: "Someone changes your grade from a C to an A without permission. Which part of CIA is broken?",
-        options: ["Confidentiality", "Integrity", "Availability"],
-        answer: 1,
-        explain: "The grade was changed, so it can no longer be trusted. That is Integrity."
-      },
-      stages: [{
-        type: "sort",
-        title: "Sort the Trouble",
-        intro: "Read each problem. Which part of CIA does it break? Click the right bin.",
-        bins: [{ label: "Confidentiality", hint: "Someone saw what they should not" }, { label: "Integrity", hint: "Something was changed" }, { label: "Availability", hint: "Something stopped working" }],
-        cards: [
-          { id: "c1-s1", text: "A stranger reads your private messages.", bin: 0, explain: "Private info was seen by the wrong person. Confidentiality." },
-          { id: "c1-s2", text: "A hacker changes the price of shoes on a store website to $1.", bin: 1, explain: "The price was changed without permission. Integrity." },
-          { id: "c1-s3", text: "The school website crashes on the first day of class.", bin: 2, explain: "Nobody can use it when they need it. Availability." },
-          { id: "c1-s4", text: "Your friend watches over your shoulder as you type your PIN.", bin: 0, explain: "Your secret was seen. Confidentiality." },
-          { id: "c1-s5", text: "A virus edits files so the numbers in them are wrong.", bin: 1, explain: "The data was changed, so you cannot trust it. Integrity." },
-          { id: "c1-s6", text: "A storm knocks out power to the server room.", bin: 2, explain: "Not every problem is a hacker. The system is down. Availability." },
-          { id: "c1-s7", text: "Thousands of fake visitors flood a game server, so real players cannot log in.", bin: 2, explain: "This is a DDoS attack. It blocks real users. Availability." },
-          { id: "c1-s8", text: "Someone posts your password online.", bin: 0, explain: "A secret is now public. Confidentiality." }
-        ]
-      }],
-      outro: "You can now name the three things every defender protects. Next stop: the Locksmith."
-    },
-    {
-      id: "c2",
-      num: 2,
-      place: "The Locksmith",
-      topic: "Passwords and MFA",
-      minutes: 6,
-      icon: "lock",
-      color: "#17807E",
-      badge: "Key Master",
-      lessons: [
-        {
-          title: "Your password is a key",
-          art: "password",
-          body: [
-            "A password is the key to your account. Attackers do not guess by hand. They use computers that try <b>billions</b> of guesses.",
-            "Short passwords fall fast. Passwords made from your name, birthday, or pet are easy to guess, because that information is often online."
-          ]
-        },
-        {
-          title: "What makes a strong password?",
-          art: "password",
-          body: [
-            '<b>Long beats clever.</b> Four random words, like <span class="mono">purple-tractor-moon-salad</span>, are long, easy to remember, and very hard to guess.',
-            "<b>One per site.</b> If one website leaks, the thief tries that password everywhere. Different passwords stop that.",
-            "<b>Use a password manager.</b> It remembers them all for you."
-          ],
-          fact: "Swapping letters for symbols, like P@ssw0rd, does not fool anyone. Attack tools try those swaps first."
-        },
-        {
-          title: "MFA: a second lock",
-          art: "mfa",
-          body: [
-            "<b>Multi-factor authentication</b> (MFA) asks for two different kinds of proof:",
-            "<b>Something you know</b> (a password), <b>something you have</b> (your phone), or <b>something you are</b> (your fingerprint).",
-            "Even if a thief steals your password, they still do not have your phone. MFA stops most account takeovers."
-          ]
-        }
-      ],
-      check: {
-        id: "c2-check",
-        prompt: "Which one is MFA?",
-        options: ["A password and a second password", "A password and a code sent to your phone", "A very long password"],
-        answer: 1,
-        explain: "Password (something you know) plus phone (something you have) is two different kinds of proof. That is MFA."
-      },
-      stages: [
-        {
-          type: "choice",
-          style: "pair",
-          title: "Password Gym",
-          intro: "Two keys. Click the stronger one.",
-          items: [
-            { id: "c2-p1", prompt: "Which password is stronger?", options: ["dragon123", "blue-river-pizza-cloud"], answer: 1, explain: `Four random words make a long password. "dragon123" is on every hacker's list.` },
-            { id: "c2-p2", prompt: "Which password is stronger?", options: ["Jessica2010", "maple-guitar-orbit-sock"], answer: 1, explain: "A name plus a birth year is easy to find on social media." },
-            { id: "c2-p3", prompt: "Which password is stronger?", options: ["P@ssw0rd!", "correct-horse-lamp-yellow"], answer: 1, explain: "Symbol swaps are tried first by attack tools. Length wins." },
-            { id: "c2-p4", prompt: "Which habit is safer?", options: ["The same strong password on every site", "A different password on every site, saved in a password manager"], answer: 1, explain: "If one site leaks, a reused password unlocks all your other accounts." },
-            { id: "c2-p5", prompt: "Which password is stronger?", options: ["qwerty", "Qz8#mL2!vR9p"], answer: 1, explain: '"qwerty" is a keyboard row. The second one is long and random.' }
-          ]
-        },
-        {
-          type: "choice",
-          style: "list",
-          title: "What would you do?",
-          intro: "Real situations. Pick the best answer.",
-          items: [
-            { id: "c2-q1", prompt: "You get a text with a login code you did not ask for. What should you do?", options: ["Ignore the code and change your password", "Send the code to whoever asks for it", "Reply STOP"], answer: 0, explain: "Someone may know your password and is stuck at MFA. Never share the code, and change your password." },
-            { id: "c2-q2", prompt: "A friend asks for your game password so they can level up your character. What do you do?", options: ["Share it, they are a friend", "Say no, and keep your password private", "Share it, then change it next month"], answer: 1, explain: "Passwords are never shared, even with friends. Accounts get stolen this way all the time." }
-          ]
-        }
-      ],
-      outro: "Strong keys and a second lock. Byteville's doors are safer already."
-    },
-    {
-      id: "c3",
-      num: 3,
-      place: "Post Office",
-      topic: "Spotting phishing",
-      minutes: 6,
-      icon: "mail",
-      color: "#E8604C",
-      badge: "Phish Spotter",
-      lessons: [
-        {
-          title: "What is phishing?",
-          art: "phish",
-          body: [
-            "<b>Phishing</b> is a fake message that pretends to be from someone you trust. Its goal is to trick you into clicking a link, typing your password, or sending money.",
-            "It can be an email, a text message, a DM, or even a phone call."
-          ],
-          fact: "In Verizon's 2026 breach report, people were part of about 6 out of every 10 data breaches. Tricking a person is often easier than hacking a computer."
-        },
-        {
-          title: "Red flags to look for",
-          art: "flags",
-          body: [
-            '<b>Hurry!</b> "Your account closes in 1 hour." Pressure stops you from thinking.',
-            '<b>Weird sender.</b> <span class="mono">support@netfIix-help.co</span> uses a capital I instead of an l.',
-            "<b>Asks for secrets.</b> Real companies never ask for your password or gift card codes.",
-            '<b>Too good to be true.</b> "You won 10,000 Robux!" You did not.'
-          ]
-        },
-        {
-          title: "What to do",
-          art: "report",
-          body: [
-            "<b>Stop.</b> Do not click links or open attachments.",
-            "<b>Check it yourself.</b> Open the real app or type the website address yourself.",
-            "<b>Report it.</b> Tell a teacher, a parent, or IT, then delete it."
-          ]
-        }
-      ],
-      check: {
-        id: "c3-check",
-        prompt: "Which is the biggest red flag?",
-        options: ['The email says "Hello"', "The email asks you to type your password on a link", "The email has a logo"],
-        answer: 1,
-        explain: "Real companies never ask for your password through a link. Logos are easy to copy."
-      },
-      stages: [{
-        type: "inbox",
-        title: "Inbox Patrol",
-        intro: "Open each message. Decide: Safe or Phish?",
-        emails: [
-          { id: "c3-e1", from: "Netflix", address: "billing@netfIix-support.co", subject: "Account suspended! Update payment in 2 hours", body: "We could not process your payment. Your account will be deleted unless you update your card now.", link: "netfIix-support.co/update", phish: true, clues: ['Capital I instead of l in "netfIix"', 'Strange ending ".co"', 'Pressure: "in 2 hours"'] },
-          { id: "c3-e2", from: "Ms. Carter", address: "jcarter@byteville-high.edu", subject: "Reminder: quiz moved to Friday", body: "Hi class, the quiz is moved to Friday. Study chapter 4. See you tomorrow!", phish: false, clues: ["School address you know", "No link, no request for secrets", "Normal, calm message"] },
-          { id: "c3-e3", from: "Roblox Rewards", address: "free.robux.rewards@gmail.com", subject: "YOU WON 10,000 ROBUX!!!", body: "Congrats! To claim your Robux, log in below with your username and password.", link: "robux-claim-now.net", phish: true, clues: ["Too good to be true", "A company does not use a free Gmail address", "Asks for your password"] },
-          { id: "c3-e4", from: "Principal Grant", address: "principal.office.2026@outlook.com", subject: "Quick favor, keep it secret", body: "I need you to buy 5 gift cards for a staff surprise. Send me the codes today. Do not tell anyone.", phish: true, clues: ["Personal email, not the school address", "Gift cards are a classic scam", '"Keep it secret" is pressure'] },
-          { id: "c3-e5", from: "USPS", address: "Text from +1 (838) 555-0147", subject: "Package on hold", body: "USPS: Your package is on hold. Pay a $1.99 fee to deliver.", link: "usps-redelivery-help.info", kind: "text", phish: true, clues: ["USPS does not text you for fees", "The link is not usps.com", "Small fee to steal your card number"] },
-          { id: "c3-e6", from: "Library", address: "notices@byteville-library.org", subject: "Your book is due Monday", body: 'The book "Wonder" is due Monday. You can renew it at the front desk or in the library app.', phish: false, clues: ["Asks for nothing secret", "Tells you to use the app or desk you already know", "No pressure"] }
-        ]
-      }],
-      outro: "You just caught the trick behind most attacks. The Post Office is proud of you."
-    },
-    {
-      id: "c4",
-      num: 4,
-      place: "Hardware Store",
-      topic: "Security controls",
-      minutes: 6,
-      icon: "tools",
-      color: "#3C9D5D",
-      badge: "Control Expert",
-      lessons: [
-        {
-          title: "What is a security control?",
-          art: "controls",
-          body: [
-            "A <b>security control</b> is anything that protects something. Think about your home.",
-            "A <b>lock</b> keeps people out. A <b>doorbell camera</b> shows who came by. <b>Insurance</b> helps you recover after a break-in.",
-            "Computers use the same three ideas."
-          ]
-        },
-        {
-          title: "Three jobs: Prevent, Detect, Fix",
-          art: "controls",
-          body: [
-            '<span class="term c">Prevent</span> Stop the problem before it happens. Locks, passwords, firewalls.',
-            '<span class="term i">Detect</span> Notice when something bad is happening. Cameras, alarms, an IDS.',
-            '<span class="term a">Fix</span> Recover after something goes wrong. Backups, antivirus cleanup, restoring files.'
-          ],
-          fact: "Good defenders use all three. No lock is perfect, so you also need a camera and a backup."
-        },
-        {
-          title: "Three kinds: Physical, Technical, Administrative",
-          art: "controlKinds",
-          body: [
-            "<b>Physical:</b> things you can touch. Fences, guards, a locked server room.",
-            "<b>Technical:</b> done by computers. Firewalls, encryption, MFA.",
-            '<b>Administrative:</b> rules and training for people. "Never share your password." Lessons like this one.'
-          ]
-        }
-      ],
-      check: {
-        id: "c4-check",
-        prompt: "A security camera is mainly a...",
-        options: ["Prevent control", "Detect control", "Fix control"],
-        answer: 1,
-        explain: "A camera does not stop anyone. It shows you what happened. That is Detect."
-      },
-      stages: [
-        {
-          type: "sort",
-          title: "Stock the Shelves",
-          intro: "Each control has one main job. Put it on the right shelf.",
-          bins: [{ label: "Prevent", hint: "Stops it before it happens" }, { label: "Detect", hint: "Notices it happening" }, { label: "Fix", hint: "Recovers afterward" }],
-          cards: [
-            { id: "c4-s1", text: "A lock on the server room door", bin: 0, explain: "It keeps people out. Prevent." },
-            { id: "c4-s2", text: "A firewall that blocks bad traffic", bin: 0, explain: "It stops traffic before it gets in. Prevent." },
-            { id: "c4-s3", text: "Multi-factor authentication (MFA)", bin: 0, explain: "It stops a thief from logging in. Prevent." },
-            { id: "c4-s4", text: "A security camera in the hallway", bin: 1, explain: "It records what happens. Detect." },
-            { id: "c4-s5", text: "An alert when someone logs in at 3 AM from another country", bin: 1, explain: "It notices strange activity. Detect." },
-            { id: "c4-s6", text: "An intrusion detection system (IDS)", bin: 1, explain: "The word is right in the name. Detect." },
-            { id: "c4-s7", text: "Restoring files from last night's backup", bin: 2, explain: "It recovers what was lost. Fix." },
-            { id: "c4-s8", text: "Antivirus removing a virus it found", bin: 2, explain: "It cleans up after the infection. Fix." },
-            { id: "c4-s9", text: "Rebuilding a laptop after ransomware", bin: 2, explain: "It brings the computer back to a safe state. Fix." }
-          ]
-        },
-        {
-          type: "choice",
-          style: "list",
-          title: "Physical, Technical, or Administrative?",
-          intro: "One more sort, quick-fire style.",
-          items: [
-            { id: "c4-k1", prompt: "A tall fence around the data center", options: ["Physical", "Technical", "Administrative"], answer: 0, explain: "You can touch it. Physical." },
-            { id: "c4-k2", prompt: "Encrypting files so only the owner can read them", options: ["Physical", "Technical", "Administrative"], answer: 1, explain: "The computer does it. Technical." },
-            { id: "c4-k3", prompt: 'A school rule: "Never share your password"', options: ["Physical", "Technical", "Administrative"], answer: 2, explain: "A rule for people. Administrative." },
-            { id: "c4-k4", prompt: "Training every student to spot phishing", options: ["Physical", "Technical", "Administrative"], answer: 2, explain: "Training is a people control. Administrative." }
-          ]
-        }
-      ],
-      outro: "You now think like a security planner: prevent, detect, and fix. Time to guard the City Gate."
-    },
-    {
-      id: "c5",
-      num: 5,
-      place: "City Gate",
-      topic: "Firewalls",
-      minutes: 6,
-      icon: "gate",
-      color: "#3B6FB6",
-      badge: "Gatekeeper",
-      lessons: [
-        {
-          title: "Data travels in packets",
-          art: "packet",
-          body: [
-            "When you open a video, it does not arrive in one piece. It is cut into thousands of small <b>packets</b>, like envelopes.",
-            "Every envelope has a <b>From</b> address, a <b>To</b> address, and a <b>door number</b>. These addresses are called <b>IP addresses</b>."
-          ],
-          fact: "A 5 MB photo travels as about 3,500 packets. They are put back together when they arrive."
-        },
-        {
-          title: "Ports are doors",
-          art: "ports",
-          body: [
-            "A computer has 65,536 numbered doors called <b>ports</b>. Each program listens at its own door.",
-            "<b>443</b> is secure websites. <b>80</b> is regular websites. <b>22</b> is remote login. <b>3389</b> is remote desktop.",
-            "Open doors are risky. A web server only needs 80 and 443."
-          ]
-        },
-        {
-          title: "The firewall is the gate guard",
-          art: "firewall",
-          body: [
-            "A <b>firewall</b> checks every packet against a list of rules, then decides: <b>allow</b> or <b>block</b>.",
-            "It reads the outside of the envelope: who sent it, where it is going, and which door.",
-            "Golden rule: <b>if it is not on the list, it does not get in.</b> This is called <i>default deny</i>."
-          ]
-        }
-      ],
-      check: {
-        id: "c5-check",
-        prompt: 'The firewall rule is "Allow port 443 only." A packet wants port 3389. What happens?',
-        options: ["Allowed", "Blocked", "It waits"],
-        answer: 1,
-        explain: "3389 is not on the list, so default deny blocks it."
-      },
-      stages: [{
-        type: "lane",
-        title: "Gate Duty",
-        intro: "Packets are coming! Check your rules and decide before each one reaches the gate. Gold packets are worth bonus points.",
-        wall: "FIREWALL",
-        left: "The Internet",
-        right: "Byteville School",
-        seconds: 12,
-        yes: "ALLOW",
-        no: "BLOCK",
-        rules: [{ kind: "block", text: "Anything from a blocklisted IP" }, { kind: "allow", text: "Port 80 or 443 (websites)" }, { kind: "block", text: "Every other port" }],
-        chips: [{ label: "Blocklist", values: BLOCKLIST }],
-        packets: gatePackets
-      }],
-      outro: "Not one stranger slipped through your gate. Next, you will build the rules yourself."
-    },
-    {
-      id: "c6",
-      num: 6,
-      place: "Rule Workshop",
-      topic: "Firewall rule order",
-      minutes: 5,
-      icon: "workshop",
-      color: "#8A5BB8",
-      badge: "Rule Architect",
-      lessons: [
-        {
-          title: "Order matters",
-          art: "order",
-          body: [
-            "A firewall reads its rules from the <b>top down</b>. As soon as one rule matches, it stops reading. This is called <b>first match wins</b>.",
-            'So if "Block everything" is at the top, nothing ever gets through, not even the school website.'
-          ]
-        },
-        {
-          title: "How to build a good list",
-          art: "order",
-          body: [
-            'Put the most <b>specific</b> rules at the top, like "Block this one bad IP."',
-            'Put the general allow rules in the middle, like "Allow websites."',
-            'Put <b>"Block everything"</b> at the very bottom as the safety net.'
-          ]
-        }
-      ],
-      check: {
-        id: "c6-check",
-        prompt: 'Where should "Block everything" go?',
-        options: ["At the top", "In the middle", "At the bottom"],
-        answer: 2,
-        explain: "At the bottom, it catches whatever the other rules did not allow."
-      },
-      stages: [{
-        type: "order",
-        title: "Fix the Rule List",
-        intro: "Use the arrows to put the rules in order. Then press Test. All test packets must turn green.",
-        puzzles: [
-          {
-            id: "c6-o1",
-            goal: "Let website visitors in. Keep everything else out.",
-            rules: [{ id: "all", text: "Block everything", action: "block" }, { id: "443", text: "Allow port 443 (websites)", action: "allow", port: 443 }],
-            tests: [{ label: "Visitor to the website", ip: "198.51.100.7", port: 443, allow: true }, { label: "Stranger trying remote desktop", ip: "198.51.100.7", port: 3389, allow: false }],
-            hint: "The safety net goes at the bottom."
-          },
-          {
-            id: "c6-o2",
-            goal: "Let website visitors in, except the known bad IP 203.0.113.66.",
-            rules: [{ id: "443", text: "Allow port 443 (websites)", action: "allow", port: 443 }, { id: "all", text: "Block everything", action: "block" }, { id: "ip", text: "Block IP 203.0.113.66", action: "block", ip: "203.0.113.66" }],
-            tests: [{ label: "Normal visitor to the website", ip: "198.51.100.7", port: 443, allow: true }, { label: "Bad IP to the website", ip: "203.0.113.66", port: 443, allow: false }, { label: "Stranger trying remote login", ip: "198.51.100.7", port: 22, allow: false }],
-            hint: 'The most specific rule, about one single IP, must come before "Allow port 443".'
-          },
-          {
-            id: "c6-o3",
-            goal: "Only the IT laptop (10.0.5.20) may use remote login on port 22. Websites stay open to all.",
-            rules: [{ id: "b22", text: "Block port 22 (remote login)", action: "block", port: 22 }, { id: "443", text: "Allow port 443 (websites)", action: "allow", port: 443 }, { id: "all", text: "Block everything", action: "block" }, { id: "it", text: "Allow port 22 from IT laptop 10.0.5.20", action: "allow", port: 22, ip: "10.0.5.20" }],
-            tests: [{ label: "IT laptop, remote login", ip: "10.0.5.20", port: 22, allow: true }, { label: "Stranger, remote login", ip: "203.0.113.9", port: 22, allow: false }, { label: "Visitor to the website", ip: "198.51.100.7", port: 443, allow: true }, { label: "Stranger trying remote desktop", ip: "198.51.100.7", port: 3389, allow: false }],
-            hint: 'The IT laptop rule is more specific than "Block port 22", so it must be above it.'
-          }
-        ]
-      }],
-      outro: "You just did a real network engineer's job. Rule order trips up professionals too."
-    },
-    {
-      id: "c7",
-      num: 7,
-      place: "Watchtower",
-      topic: "Intrusion detection (IDS)",
-      minutes: 5,
-      icon: "tower",
-      color: "#C9862B",
-      badge: "Watchtower Eye",
-      lessons: [
-        {
-          title: "What the gate cannot see",
-          art: "ids",
-          body: [
-            "The firewall only reads the <b>outside</b> of the envelope. It never opens it.",
-            "So an attack can sneak in through an allowed door, like port 443, hidden inside the message."
-          ]
-        },
-        {
-          title: "The IDS is a security camera",
-          art: "ids",
-          body: [
-            "An <b>Intrusion Detection System</b> (IDS) watches the traffic and reads what is <b>inside</b>.",
-            "If it sees something bad, it raises an <b>alert</b> for a human to check. It does not block anything by itself."
-          ]
-        },
-        {
-          title: "Two ways to spot trouble",
-          art: "signature",
-          body: [
-            '<b>Signatures</b> are like wanted posters. The IDS looks for known attack text, such as <span class="mono">OR 1=1</span>.',
-            "<b>Anomalies</b> are things that look weird compared to normal. A school laptop sending 5 GB of data at 3 AM is weird."
-          ],
-          fact: 'Signatures must match exactly. "script for the play" is not the same as "&lt;script&gt;".'
-        }
-      ],
-      check: {
-        id: "c7-check",
-        prompt: "What does an IDS do when it finds an attack?",
-        options: ["Blocks it", "Raises an alert", "Deletes the computer"],
-        answer: 1,
-        explain: "An IDS watches and alerts. Blocking is the job of an IPS, which you will meet next."
-      },
-      stages: [{
-        type: "choice",
-        style: "list",
-        title: "Tower Watch",
-        intro: "These all got past the firewall. Read what is inside. Normal, or raise the alert?",
-        items: [
-          { id: "c7-w1", prompt: "Message: Search: ' OR 1=1 --", options: ["Normal", "Alert"], answer: 1, explain: 'It contains "OR 1=1", a database trick. Alert.' },
-          { id: "c7-w2", prompt: "Message: Show me the school calendar", options: ["Normal", "Alert"], answer: 0, explain: "A normal request. No signature." },
-          { id: "c7-w3", prompt: "Message: Comment: <script>steal()<\/script>", options: ["Normal", "Alert"], answer: 1, explain: 'It contains "<script>", code hidden in a comment. Alert.' },
-          { id: "c7-w4", prompt: "Message: Search: script for the school play", options: ["Normal", "Alert"], answer: 0, explain: '"script" is not "<script>". Signatures must match exactly. Normal.' },
-          { id: "c7-w5", prompt: "Activity: A school laptop sends 5 GB to an unknown server at 3:12 AM", options: ["Normal", "Alert"], answer: 1, explain: "Huge upload, strange time, unknown place. That is an anomaly. Alert." },
-          { id: "c7-w6", prompt: "Activity: A student downloads a 20 MB PDF for class at 10 AM", options: ["Normal", "Alert"], answer: 0, explain: "Normal size, normal time, normal reason." },
-          { id: "c7-w7", prompt: "Message: Get file: ../../secret/grades.txt", options: ["Normal", "Alert"], answer: 1, explain: '"../" tries to climb into folders it should not reach. Alert.' },
-          { id: "c7-w8", prompt: "Activity: The same account fails to log in 50 times in one minute", options: ["Normal", "Alert"], answer: 1, explain: "Someone is guessing passwords. That is an anomaly. Alert." }
-        ]
-      }],
-      outro: "Sharp eyes! The watchtower caught what the gate could not see."
-    },
-    {
-      id: "c8",
-      num: 8,
-      place: "Guard Post",
-      topic: "IPS and defense in depth",
-      minutes: 6,
-      icon: "shield",
-      color: "#2E2A3B",
-      badge: "Town Defender",
-      lessons: [
-        {
-          title: "The IPS can stop attacks",
-          art: "ips",
-          body: [
-            "An <b>Intrusion Prevention System</b> (IPS) reads inside packets like an IDS. The difference: it sits <b>in the path</b>, so it can <b>block</b> bad packets right away.",
-            "IDS = camera that calls for help. IPS = guard who stops the intruder."
-          ]
-        },
-        {
-          title: "Oops: false positives",
-          art: "ips",
-          body: [
-            "Sometimes an IPS blocks something that was actually fine. That is a <b>false positive</b>.",
-            "Missing a real attack is a <b>false negative</b>. Defenders tune their rules to keep both low."
-          ]
-        },
-        {
-          title: "Defense in depth",
-          art: "castle",
-          body: [
-            "A castle has a moat, a wall, guards, and a locked treasure room. If one layer fails, the next one is still there.",
-            "Byteville works the same way: <b>training</b> stops phishing, <b>MFA</b> stops stolen passwords, the <b>firewall</b> guards the doors, the <b>IPS</b> checks the messages, and <b>backups</b> fix what breaks."
-          ]
-        }
-      ],
-      check: {
-        id: "c8-check",
-        prompt: "The IPS blocks a student's real homework upload by mistake. This is a...",
-        options: ["False positive", "False negative", "True positive"],
-        answer: 0,
-        explain: "It raised the alarm on something that was fine. False positive."
-      },
-      stages: [{
-        type: "lane",
-        title: "Night Shift",
-        intro: "Final challenge! You are the firewall AND the IPS. Check the IP, then the port, then the message. Faster this time.",
-        wall: "FIREWALL + IPS",
-        left: "The Internet",
-        right: "Byteville School",
-        seconds: 10,
-        yes: "ALLOW",
-        no: "BLOCK",
-        rules: [{ kind: "block", text: "Anything from a blocklisted IP" }, { kind: "block", text: "Any port that is not 80 or 443" }, { kind: "alert", text: "Any message with a signature" }, { kind: "allow", text: "Everything that passed all three checks" }],
-        chips: [{ label: "Blocklist", values: BLOCKLIST }, { label: "Signatures", values: SIGNATURES.map((s) => s[0]) }],
-        packets: guardPackets
-      }],
-      outro: "Byteville is safe tonight because of you. Head to Graduation for your certificate!"
-    }
-  ];
-  var RANKS = [
-    [0, "Rookie"],
-    [200, "Cadet"],
-    [600, "Gate Guard"],
-    [1200, "Analyst"],
-    [1900, "Defender"],
-    [2600, "Chief of Security"]
-  ];
-  var BADGES = [
-    ...CHAPTERS.map((c) => ({ id: "ch-" + c.id, name: c.badge, how: `Finish chapter ${c.num}: ${c.place}` })),
-    { id: "streak5", name: "Hot Streak", how: "5 right answers in a row" },
-    { id: "streak10", name: "Unstoppable", how: "10 right answers in a row" },
-    { id: "golden", name: "Golden Catch", how: "Handle a gold packet correctly" },
-    { id: "perfect", name: "Perfectionist", how: "Get 3 stars on 3 chapters" },
-    { id: "quick", name: "Quick Thinker", how: "5 fast right answers at the gate" },
-    { id: "grad", name: "Graduate", how: "Finish all 8 chapters" },
-    { id: "nw-first", name: "Night Owl", how: "Solve your first Night Watch level" },
-    { id: "nw-half", name: "Graveyard Shift", how: "Solve 6 Night Watch levels" },
-    { id: "nw-clean", name: "No Hints Needed", how: "Solve a Night Watch level from 7 up without hints" },
-    { id: "nw-all", name: "Sentinel", how: "Solve all 12 Night Watch levels" }
-  ];
-  var PRAISE = ["Nice catch!", "Great thinking!", "You got it!", "Sharp eyes!", "Exactly right!", "Well done, defender!"];
-  var ENCOURAGE = ["Almost! Here is the trick:", "Good try. Here is what to look for:", "Not this time. Remember:", "Close! Keep this in mind:"];
-
-  // src/art.ts
-  var svg = (vb, body, label) => `<svg viewBox="${vb}" role="img" aria-label="${label}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
-  function ada(size = 64) {
-    return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true">
+"use strict";(()=>{var K=e=>e[Math.floor(Math.random()*e.length)],_e=(e,t)=>e+Math.floor(Math.random()*(t-e+1)),We=["203.0.113.66","192.0.2.99"],Ne=["a student at home","a parent","a phone on school Wi-Fi","a visitor from Texas","a library computer","a laptop at a cafe"],Se=()=>{let e="";do e=K(["198.51.100.","203.0.113.","192.0.2."])+_e(2,250);while(We.includes(e));return e},c0={80:"HTTP (website)",443:"HTTPS (secure website)",22:"SSH (remote login)",23:"Telnet (old, unsafe login)",21:"FTP (file transfer)",445:"SMB (file sharing)",3389:"RDP (remote desktop)",3306:"MySQL (database)"},d0={22:"Port 22 is remote login. Strangers try to guess passwords on it all day.",23:"Port 23 is Telnet. It sends passwords as plain text. Keep it shut.",21:"Port 21 is file transfer. A website does not need it.",445:"Port 445 is file sharing. The WannaCry worm spread through it in 2017.",3389:"Port 3389 is remote desktop. Ransomware gangs love finding it open.",3306:"Port 3306 is a database. Databases should never face the Internet."},p0=[["OR 1=1","tricks a database (SQL injection)"],["<script>","sneaks code into a web page"],["../","tries to climb into other folders"]],Ge=["Show me the school calendar","Search: library hours","Login: maya.r (password ok)","Upload: science_project.pdf","Search: script for the school play","Search: 1 or 2 day field trip","Comment: Great game last night!"],V0=[["Search: ' OR 1=1 --","OR 1=1"],["Login: admin' OR 1=1 --","OR 1=1"],["Comment: <script>steal()<\/script>","<script>"],["Get file: ../../secret/grades.txt","../"]],l0={"Search: script for the school play":'It says "script", but not "<script>". A signature has to match exactly. This one is normal.',"Search: 1 or 2 day field trip":'"1 or 2" is not "OR 1=1". Just a normal search.'};function h0(e){for(let t=e.length-1;t>0;t--){let s=Math.floor(Math.random()*(t+1));[e[t],e[s]]=[e[s],e[t]]}return e}var Q0=0,me=e=>`${e}-${++Q0}`;function J0(){let e=()=>{let n=K([443,443,80]);return{id:me("gate"),cat:"website-ok",from:Se(),who:K(Ne),port:n,allow:!0,why:n===443?"Port 443 is a secure website. It is on the allow list.":"Port 80 is a website. It is on the allow list."}},t=()=>{let n=K([22,23,21,445,3389,3306]);return{id:me("gate"),cat:"bad-port",from:Se(),who:K(Ne.concat(["unknown sender"])),port:n,allow:!1,why:d0[n]+" Only 80 and 443 are allowed."}},s=()=>{let n=K(We);return{id:me("gate"),cat:"blocklist",from:n,who:"unknown sender",port:K([443,80]),allow:!1,why:`The port is fine, but ${n} is on the blocklist. The blocklist rule is checked first.`}},o=h0([e(),e(),e(),e(),e(),t(),t(),t(),s(),s()]);return o[_e(3,8)].golden=!0,o}function Z0(){let e=()=>{let r=K(Ge);return{id:me("guard"),cat:l0[r]?"tricky-clean":"clean",from:Se(),who:K(Ne),port:K([443,443,80]),msg:r,allow:!0,why:l0[r]||"Good IP, allowed port, clean message. Let it in."}},t=()=>{let[r,i]=K(V0),c=p0.find(u=>u[0]===i);return{id:me("guard"),cat:"signature",from:Se(),who:K(Ne),port:K([443,80]),msg:r,allow:!1,why:`The port is allowed, but the message has "${c[0]}". That ${c[1]}. Block it.`}},s=()=>{let r=K([22,3389,445]);return{id:me("guard"),cat:"bad-port",from:Se(),who:"unknown sender",port:r,msg:K(Ge),allow:!1,why:d0[r]+" The message looks fine, but the door is closed."}},o=()=>{let r=K(We);return{id:me("guard"),cat:"blocklist",from:r,who:"unknown sender",port:443,msg:K(Ge),allow:!1,why:`${r} is on the blocklist. It does not matter how nice the message looks.`}},n=h0([e(),e(),e(),e(),e(),t(),t(),t(),s(),s(),o(),o()]);return n[_e(4,11)].golden=!0,n}var Y=[{id:"c1",num:1,place:"Town Hall",topic:"What is cybersecurity?",minutes:5,icon:"hall",color:"#F5A623",badge:"First Steps",lessons:[{title:"Welcome to Byteville",art:"town",body:["Byteville runs on computers. The school keeps grades on them. The bank keeps money records. The hospital keeps patient files. Even the traffic lights are online.","<b>Cybersecurity</b> means protecting computers, phones, networks, and the information on them from people who want to <b>steal</b> it, <b>change</b> it, or <b>break</b> it.","Your job: help Byteville stay safe. I will teach you one idea at a time. Then you will practice it."]},{title:"The CIA Triad",art:"cia",body:["No, not the spy agency. In security, CIA stands for three things we protect.",'<span class="term c">Confidentiality</span> Only the right people can see it. Like a lock on your diary.',`<span class="term i">Integrity</span> Nobody secretly changes it. Like a teacher's grade book that only the teacher can edit.`,'<span class="term a">Availability</span> It works when you need it. Like the school website on the first day of class.'],fact:"Almost every attack breaks at least one of these three. Spotting which one helps you choose the right defense."},{title:"Who attacks, and why?",art:"attackers",body:["Most attackers want <b>money</b>. Ransomware locks a school's files and demands payment to unlock them.","Some want <b>secrets</b>, like passwords or test answers. Some just want to <b>show off</b>.","The good news: simple habits and good tools stop most attacks. That is what you will learn here."]}],check:{id:"c1-check",prompt:"Someone changes your grade from a C to an A without permission. Which part of CIA is broken?",options:["Confidentiality","Integrity","Availability"],answer:1,explain:"The grade was changed, so it can no longer be trusted. That is Integrity."},stages:[{type:"sort",title:"Sort the Trouble",intro:"Read each problem. Which part of CIA does it break? Click the right bin.",bins:[{label:"Confidentiality",hint:"Someone saw what they should not"},{label:"Integrity",hint:"Something was changed"},{label:"Availability",hint:"Something stopped working"}],cards:[{id:"c1-s1",text:"A stranger reads your private messages.",bin:0,explain:"Private info was seen by the wrong person. Confidentiality."},{id:"c1-s2",text:"A hacker changes the price of shoes on a store website to $1.",bin:1,explain:"The price was changed without permission. Integrity."},{id:"c1-s3",text:"The school website crashes on the first day of class.",bin:2,explain:"Nobody can use it when they need it. Availability."},{id:"c1-s4",text:"Your friend watches over your shoulder as you type your PIN.",bin:0,explain:"Your secret was seen. Confidentiality."},{id:"c1-s5",text:"A virus edits files so the numbers in them are wrong.",bin:1,explain:"The data was changed, so you cannot trust it. Integrity."},{id:"c1-s6",text:"A storm knocks out power to the server room.",bin:2,explain:"Not every problem is a hacker. The system is down. Availability."},{id:"c1-s7",text:"Thousands of fake visitors flood a game server, so real players cannot log in.",bin:2,explain:"This is a DDoS attack. It blocks real users. Availability."},{id:"c1-s8",text:"Someone posts your password online.",bin:0,explain:"A secret is now public. Confidentiality."}]}],outro:"You can now name the three things every defender protects. Next stop: the Locksmith."},{id:"c2",num:2,place:"The Locksmith",topic:"Passwords and MFA",minutes:6,icon:"lock",color:"#17807E",badge:"Key Master",lessons:[{title:"Your password is a key",art:"password",body:["A password is the key to your account. Attackers do not guess by hand. They use computers that try <b>billions</b> of guesses.","Short passwords fall fast. Passwords made from your name, birthday, or pet are easy to guess, because that information is often online."]},{title:"What makes a strong password?",art:"password",body:['<b>Long beats clever.</b> Four random words, like <span class="mono">purple-tractor-moon-salad</span>, are long, easy to remember, and very hard to guess.',"<b>One per site.</b> If one website leaks, the thief tries that password everywhere. Different passwords stop that.","<b>Use a password manager.</b> It remembers them all for you."],fact:"Swapping letters for symbols, like P@ssw0rd, does not fool anyone. Attack tools try those swaps first."},{title:"MFA: a second lock",art:"mfa",body:["<b>Multi-factor authentication</b> (MFA) asks for two different kinds of proof:","<b>Something you know</b> (a password), <b>something you have</b> (your phone), or <b>something you are</b> (your fingerprint).","Even if a thief steals your password, they still do not have your phone. MFA stops most account takeovers."]}],check:{id:"c2-check",prompt:"Which one is MFA?",options:["A password and a second password","A password and a code sent to your phone","A very long password"],answer:1,explain:"Password (something you know) plus phone (something you have) is two different kinds of proof. That is MFA."},stages:[{type:"choice",style:"pair",title:"Password Gym",intro:"Two keys. Click the stronger one.",items:[{id:"c2-p1",prompt:"Which password is stronger?",options:["dragon123","blue-river-pizza-cloud"],answer:1,explain:`Four random words make a long password. "dragon123" is on every hacker's list.`},{id:"c2-p2",prompt:"Which password is stronger?",options:["Jessica2010","maple-guitar-orbit-sock"],answer:1,explain:"A name plus a birth year is easy to find on social media."},{id:"c2-p3",prompt:"Which password is stronger?",options:["P@ssw0rd!","correct-horse-lamp-yellow"],answer:1,explain:"Symbol swaps are tried first by attack tools. Length wins."},{id:"c2-p4",prompt:"Which habit is safer?",options:["The same strong password on every site","A different password on every site, saved in a password manager"],answer:1,explain:"If one site leaks, a reused password unlocks all your other accounts."},{id:"c2-p5",prompt:"Which password is stronger?",options:["qwerty","Qz8#mL2!vR9p"],answer:1,explain:'"qwerty" is a keyboard row. The second one is long and random.'}]},{type:"choice",style:"list",title:"What would you do?",intro:"Real situations. Pick the best answer.",items:[{id:"c2-q1",prompt:"You get a text with a login code you did not ask for. What should you do?",options:["Ignore the code and change your password","Send the code to whoever asks for it","Reply STOP"],answer:0,explain:"Someone may know your password and is stuck at MFA. Never share the code, and change your password."},{id:"c2-q2",prompt:"A friend asks for your game password so they can level up your character. What do you do?",options:["Share it, they are a friend","Say no, and keep your password private","Share it, then change it next month"],answer:1,explain:"Passwords are never shared, even with friends. Accounts get stolen this way all the time."}]}],outro:"Strong keys and a second lock. Byteville's doors are safer already."},{id:"c3",num:3,place:"Post Office",topic:"Spotting phishing",minutes:6,icon:"mail",color:"#E8604C",badge:"Phish Spotter",lessons:[{title:"What is phishing?",art:"phish",body:["<b>Phishing</b> is a fake message that pretends to be from someone you trust. Its goal is to trick you into clicking a link, typing your password, or sending money.","It can be an email, a text message, a DM, or even a phone call."],fact:"In Verizon's 2026 breach report, people were part of about 6 out of every 10 data breaches. Tricking a person is often easier than hacking a computer."},{title:"Red flags to look for",art:"flags",body:['<b>Hurry!</b> "Your account closes in 1 hour." Pressure stops you from thinking.','<b>Weird sender.</b> <span class="mono">support@netfIix-help.co</span> uses a capital I instead of an l.',"<b>Asks for secrets.</b> Real companies never ask for your password or gift card codes.",'<b>Too good to be true.</b> "You won 10,000 Robux!" You did not.']},{title:"What to do",art:"report",body:["<b>Stop.</b> Do not click links or open attachments.","<b>Check it yourself.</b> Open the real app or type the website address yourself.","<b>Report it.</b> Tell a teacher, a parent, or IT, then delete it."]}],check:{id:"c3-check",prompt:"Which is the biggest red flag?",options:['The email says "Hello"',"The email asks you to type your password on a link","The email has a logo"],answer:1,explain:"Real companies never ask for your password through a link. Logos are easy to copy."},stages:[{type:"inbox",title:"Inbox Patrol",intro:"Open each message. Decide: Safe or Phish?",emails:[{id:"c3-e1",from:"Netflix",address:"billing@netfIix-support.co",subject:"Account suspended! Update payment in 2 hours",body:"We could not process your payment. Your account will be deleted unless you update your card now.",link:"netfIix-support.co/update",phish:!0,clues:['Capital I instead of l in "netfIix"','Strange ending ".co"','Pressure: "in 2 hours"']},{id:"c3-e2",from:"Ms. Carter",address:"jcarter@byteville-high.edu",subject:"Reminder: quiz moved to Friday",body:"Hi class, the quiz is moved to Friday. Study chapter 4. See you tomorrow!",phish:!1,clues:["School address you know","No link, no request for secrets","Normal, calm message"]},{id:"c3-e3",from:"Roblox Rewards",address:"free.robux.rewards@gmail.com",subject:"YOU WON 10,000 ROBUX!!!",body:"Congrats! To claim your Robux, log in below with your username and password.",link:"robux-claim-now.net",phish:!0,clues:["Too good to be true","A company does not use a free Gmail address","Asks for your password"]},{id:"c3-e4",from:"Principal Grant",address:"principal.office.2026@outlook.com",subject:"Quick favor, keep it secret",body:"I need you to buy 5 gift cards for a staff surprise. Send me the codes today. Do not tell anyone.",phish:!0,clues:["Personal email, not the school address","Gift cards are a classic scam",'"Keep it secret" is pressure']},{id:"c3-e5",from:"USPS",address:"Text from +1 (838) 555-0147",subject:"Package on hold",body:"USPS: Your package is on hold. Pay a $1.99 fee to deliver.",link:"usps-redelivery-help.info",kind:"text",phish:!0,clues:["USPS does not text you for fees","The link is not usps.com","Small fee to steal your card number"]},{id:"c3-e6",from:"Library",address:"notices@byteville-library.org",subject:"Your book is due Monday",body:'The book "Wonder" is due Monday. You can renew it at the front desk or in the library app.',phish:!1,clues:["Asks for nothing secret","Tells you to use the app or desk you already know","No pressure"]}]}],outro:"You just caught the trick behind most attacks. The Post Office is proud of you."},{id:"c4",num:4,place:"Hardware Store",topic:"Security controls",minutes:6,icon:"tools",color:"#3C9D5D",badge:"Control Expert",lessons:[{title:"What is a security control?",art:"controls",body:["A <b>security control</b> is anything that protects something. Think about your home.","A <b>lock</b> keeps people out. A <b>doorbell camera</b> shows who came by. <b>Insurance</b> helps you recover after a break-in.","Computers use the same three ideas."]},{title:"Three jobs: Prevent, Detect, Fix",art:"controls",body:['<span class="term c">Prevent</span> Stop the problem before it happens. Locks, passwords, firewalls.','<span class="term i">Detect</span> Notice when something bad is happening. Cameras, alarms, an IDS.','<span class="term a">Fix</span> Recover after something goes wrong. Backups, antivirus cleanup, restoring files.'],fact:"Good defenders use all three. No lock is perfect, so you also need a camera and a backup."},{title:"Three kinds: Physical, Technical, Administrative",art:"controlKinds",body:["<b>Physical:</b> things you can touch. Fences, guards, a locked server room.","<b>Technical:</b> done by computers. Firewalls, encryption, MFA.",'<b>Administrative:</b> rules and training for people. "Never share your password." Lessons like this one.']}],check:{id:"c4-check",prompt:"A security camera is mainly a...",options:["Prevent control","Detect control","Fix control"],answer:1,explain:"A camera does not stop anyone. It shows you what happened. That is Detect."},stages:[{type:"sort",title:"Stock the Shelves",intro:"Each control has one main job. Put it on the right shelf.",bins:[{label:"Prevent",hint:"Stops it before it happens"},{label:"Detect",hint:"Notices it happening"},{label:"Fix",hint:"Recovers afterward"}],cards:[{id:"c4-s1",text:"A lock on the server room door",bin:0,explain:"It keeps people out. Prevent."},{id:"c4-s2",text:"A firewall that blocks bad traffic",bin:0,explain:"It stops traffic before it gets in. Prevent."},{id:"c4-s3",text:"Multi-factor authentication (MFA)",bin:0,explain:"It stops a thief from logging in. Prevent."},{id:"c4-s4",text:"A security camera in the hallway",bin:1,explain:"It records what happens. Detect."},{id:"c4-s5",text:"An alert when someone logs in at 3 AM from another country",bin:1,explain:"It notices strange activity. Detect."},{id:"c4-s6",text:"An intrusion detection system (IDS)",bin:1,explain:"The word is right in the name. Detect."},{id:"c4-s7",text:"Restoring files from last night's backup",bin:2,explain:"It recovers what was lost. Fix."},{id:"c4-s8",text:"Antivirus removing a virus it found",bin:2,explain:"It cleans up after the infection. Fix."},{id:"c4-s9",text:"Rebuilding a laptop after ransomware",bin:2,explain:"It brings the computer back to a safe state. Fix."}]},{type:"choice",style:"list",title:"Physical, Technical, or Administrative?",intro:"One more sort, quick-fire style.",items:[{id:"c4-k1",prompt:"A tall fence around the data center",options:["Physical","Technical","Administrative"],answer:0,explain:"You can touch it. Physical."},{id:"c4-k2",prompt:"Encrypting files so only the owner can read them",options:["Physical","Technical","Administrative"],answer:1,explain:"The computer does it. Technical."},{id:"c4-k3",prompt:'A school rule: "Never share your password"',options:["Physical","Technical","Administrative"],answer:2,explain:"A rule for people. Administrative."},{id:"c4-k4",prompt:"Training every student to spot phishing",options:["Physical","Technical","Administrative"],answer:2,explain:"Training is a people control. Administrative."}]}],outro:"You now think like a security planner: prevent, detect, and fix. Time to guard the City Gate."},{id:"c5",num:5,place:"City Gate",topic:"Firewalls",minutes:6,icon:"gate",color:"#3B6FB6",badge:"Gatekeeper",lessons:[{title:"Data travels in packets",art:"packet",body:["When you open a video, it does not arrive in one piece. It is cut into thousands of small <b>packets</b>, like envelopes.","Every envelope has a <b>From</b> address, a <b>To</b> address, and a <b>door number</b>. These addresses are called <b>IP addresses</b>."],fact:"A 5 MB photo travels as about 3,500 packets. They are put back together when they arrive."},{title:"Ports are doors",art:"ports",body:["A computer has 65,536 numbered doors called <b>ports</b>. Each program listens at its own door.","<b>443</b> is secure websites. <b>80</b> is regular websites. <b>22</b> is remote login. <b>3389</b> is remote desktop.","Open doors are risky. A web server only needs 80 and 443."]},{title:"The firewall is the gate guard",art:"firewall",body:["A <b>firewall</b> checks every packet against a list of rules, then decides: <b>allow</b> or <b>block</b>.","It reads the outside of the envelope: who sent it, where it is going, and which door.","Golden rule: <b>if it is not on the list, it does not get in.</b> This is called <i>default deny</i>."]}],check:{id:"c5-check",prompt:'The firewall rule is "Allow port 443 only." A packet wants port 3389. What happens?',options:["Allowed","Blocked","It waits"],answer:1,explain:"3389 is not on the list, so default deny blocks it."},stages:[{type:"lane",title:"Gate Duty",intro:"Packets are coming! Check your rules and decide before each one reaches the gate. Gold packets are worth bonus points.",wall:"FIREWALL",left:"The Internet",right:"Byteville School",seconds:12,yes:"ALLOW",no:"BLOCK",rules:[{kind:"block",text:"Anything from a blocklisted IP"},{kind:"allow",text:"Port 80 or 443 (websites)"},{kind:"block",text:"Every other port"}],chips:[{label:"Blocklist",values:We}],packets:J0}],outro:"Not one stranger slipped through your gate. Next, you will build the rules yourself."},{id:"c6",num:6,place:"Rule Workshop",topic:"Firewall rule order",minutes:5,icon:"workshop",color:"#8A5BB8",badge:"Rule Architect",lessons:[{title:"Order matters",art:"order",body:["A firewall reads its rules from the <b>top down</b>. As soon as one rule matches, it stops reading. This is called <b>first match wins</b>.",'So if "Block everything" is at the top, nothing ever gets through, not even the school website.']},{title:"How to build a good list",art:"order",body:['Put the most <b>specific</b> rules at the top, like "Block this one bad IP."','Put the general allow rules in the middle, like "Allow websites."','Put <b>"Block everything"</b> at the very bottom as the safety net.']}],check:{id:"c6-check",prompt:'Where should "Block everything" go?',options:["At the top","In the middle","At the bottom"],answer:2,explain:"At the bottom, it catches whatever the other rules did not allow."},stages:[{type:"order",title:"Fix the Rule List",intro:"Use the arrows to put the rules in order. Then press Test. All test packets must turn green.",puzzles:[{id:"c6-o1",goal:"Let website visitors in. Keep everything else out.",rules:[{id:"all",text:"Block everything",action:"block"},{id:"443",text:"Allow port 443 (websites)",action:"allow",port:443}],tests:[{label:"Visitor to the website",ip:"198.51.100.7",port:443,allow:!0},{label:"Stranger trying remote desktop",ip:"198.51.100.7",port:3389,allow:!1}],hint:"The safety net goes at the bottom."},{id:"c6-o2",goal:"Let website visitors in, except the known bad IP 203.0.113.66.",rules:[{id:"443",text:"Allow port 443 (websites)",action:"allow",port:443},{id:"all",text:"Block everything",action:"block"},{id:"ip",text:"Block IP 203.0.113.66",action:"block",ip:"203.0.113.66"}],tests:[{label:"Normal visitor to the website",ip:"198.51.100.7",port:443,allow:!0},{label:"Bad IP to the website",ip:"203.0.113.66",port:443,allow:!1},{label:"Stranger trying remote login",ip:"198.51.100.7",port:22,allow:!1}],hint:'The most specific rule, about one single IP, must come before "Allow port 443".'},{id:"c6-o3",goal:"Only the IT laptop (10.0.5.20) may use remote login on port 22. Websites stay open to all.",rules:[{id:"b22",text:"Block port 22 (remote login)",action:"block",port:22},{id:"443",text:"Allow port 443 (websites)",action:"allow",port:443},{id:"all",text:"Block everything",action:"block"},{id:"it",text:"Allow port 22 from IT laptop 10.0.5.20",action:"allow",port:22,ip:"10.0.5.20"}],tests:[{label:"IT laptop, remote login",ip:"10.0.5.20",port:22,allow:!0},{label:"Stranger, remote login",ip:"203.0.113.9",port:22,allow:!1},{label:"Visitor to the website",ip:"198.51.100.7",port:443,allow:!0},{label:"Stranger trying remote desktop",ip:"198.51.100.7",port:3389,allow:!1}],hint:'The IT laptop rule is more specific than "Block port 22", so it must be above it.'}]}],outro:"You just did a real network engineer's job. Rule order trips up professionals too."},{id:"c7",num:7,place:"Watchtower",topic:"Intrusion detection (IDS)",minutes:5,icon:"tower",color:"#C9862B",badge:"Watchtower Eye",lessons:[{title:"What the gate cannot see",art:"ids",body:["The firewall only reads the <b>outside</b> of the envelope. It never opens it.","So an attack can sneak in through an allowed door, like port 443, hidden inside the message."]},{title:"The IDS is a security camera",art:"ids",body:["An <b>Intrusion Detection System</b> (IDS) watches the traffic and reads what is <b>inside</b>.","If it sees something bad, it raises an <b>alert</b> for a human to check. It does not block anything by itself."]},{title:"Two ways to spot trouble",art:"signature",body:['<b>Signatures</b> are like wanted posters. The IDS looks for known attack text, such as <span class="mono">OR 1=1</span>.',"<b>Anomalies</b> are things that look weird compared to normal. A school laptop sending 5 GB of data at 3 AM is weird."],fact:'Signatures must match exactly. "script for the play" is not the same as "&lt;script&gt;".'}],check:{id:"c7-check",prompt:"What does an IDS do when it finds an attack?",options:["Blocks it","Raises an alert","Deletes the computer"],answer:1,explain:"An IDS watches and alerts. Blocking is the job of an IPS, which you will meet next."},stages:[{type:"choice",style:"list",title:"Tower Watch",intro:"These all got past the firewall. Read what is inside. Normal, or raise the alert?",items:[{id:"c7-w1",prompt:"Message: Search: ' OR 1=1 --",options:["Normal","Alert"],answer:1,explain:'It contains "OR 1=1", a database trick. Alert.'},{id:"c7-w2",prompt:"Message: Show me the school calendar",options:["Normal","Alert"],answer:0,explain:"A normal request. No signature."},{id:"c7-w3",prompt:"Message: Comment: <script>steal()<\/script>",options:["Normal","Alert"],answer:1,explain:'It contains "<script>", code hidden in a comment. Alert.'},{id:"c7-w4",prompt:"Message: Search: script for the school play",options:["Normal","Alert"],answer:0,explain:'"script" is not "<script>". Signatures must match exactly. Normal.'},{id:"c7-w5",prompt:"Activity: A school laptop sends 5 GB to an unknown server at 3:12 AM",options:["Normal","Alert"],answer:1,explain:"Huge upload, strange time, unknown place. That is an anomaly. Alert."},{id:"c7-w6",prompt:"Activity: A student downloads a 20 MB PDF for class at 10 AM",options:["Normal","Alert"],answer:0,explain:"Normal size, normal time, normal reason."},{id:"c7-w7",prompt:"Message: Get file: ../../secret/grades.txt",options:["Normal","Alert"],answer:1,explain:'"../" tries to climb into folders it should not reach. Alert.'},{id:"c7-w8",prompt:"Activity: The same account fails to log in 50 times in one minute",options:["Normal","Alert"],answer:1,explain:"Someone is guessing passwords. That is an anomaly. Alert."}]}],outro:"Sharp eyes! The watchtower caught what the gate could not see."},{id:"c8",num:8,place:"Guard Post",topic:"IPS and defense in depth",minutes:6,icon:"shield",color:"#2E2A3B",badge:"Town Defender",lessons:[{title:"The IPS can stop attacks",art:"ips",body:["An <b>Intrusion Prevention System</b> (IPS) reads inside packets like an IDS. The difference: it sits <b>in the path</b>, so it can <b>block</b> bad packets right away.","IDS = camera that calls for help. IPS = guard who stops the intruder."]},{title:"Oops: false positives",art:"ips",body:["Sometimes an IPS blocks something that was actually fine. That is a <b>false positive</b>.","Missing a real attack is a <b>false negative</b>. Defenders tune their rules to keep both low."]},{title:"Defense in depth",art:"castle",body:["A castle has a moat, a wall, guards, and a locked treasure room. If one layer fails, the next one is still there.","Byteville works the same way: <b>training</b> stops phishing, <b>MFA</b> stops stolen passwords, the <b>firewall</b> guards the doors, the <b>IPS</b> checks the messages, and <b>backups</b> fix what breaks."]}],check:{id:"c8-check",prompt:"The IPS blocks a student's real homework upload by mistake. This is a...",options:["False positive","False negative","True positive"],answer:0,explain:"It raised the alarm on something that was fine. False positive."},stages:[{type:"lane",title:"Night Shift",intro:"Final challenge! You are the firewall AND the IPS. Check the IP, then the port, then the message. Faster this time.",wall:"FIREWALL + IPS",left:"The Internet",right:"Byteville School",seconds:10,yes:"ALLOW",no:"BLOCK",rules:[{kind:"block",text:"Anything from a blocklisted IP"},{kind:"block",text:"Any port that is not 80 or 443"},{kind:"alert",text:"Any message with a signature"},{kind:"allow",text:"Everything that passed all three checks"}],chips:[{label:"Blocklist",values:We},{label:"Signatures",values:p0.map(e=>e[0])}],packets:Z0}],outro:"Byteville is safe tonight because of you. Head to Graduation for your certificate!"}],Pe=[[0,"Rookie"],[200,"Cadet"],[600,"Gate Guard"],[1200,"Analyst"],[1900,"Defender"],[2600,"Chief of Security"]],fe=[...Y.map(e=>({id:"ch-"+e.id,name:e.badge,how:`Finish chapter ${e.num}: ${e.place}`})),{id:"streak5",name:"Hot Streak",how:"5 right answers in a row"},{id:"streak10",name:"Unstoppable",how:"10 right answers in a row"},{id:"golden",name:"Golden Catch",how:"Handle a gold packet correctly"},{id:"perfect",name:"Perfectionist",how:"Get 3 stars on 3 chapters"},{id:"quick",name:"Quick Thinker",how:"5 fast right answers at the gate"},{id:"grad",name:"Graduate",how:"Finish all 8 chapters"},{id:"nw-first",name:"Night Owl",how:"Solve your first Night Watch level"},{id:"nw-half",name:"Graveyard Shift",how:"Solve 6 Night Watch levels"},{id:"nw-clean",name:"No Hints Needed",how:"Solve a Night Watch level from 7 up without hints"},{id:"nw-all",name:"Sentinel",how:"Solve all 12 Night Watch levels"},{id:"op-first",name:"Logged In",how:"Solve your first Control Room level"},{id:"op-all",name:"Root of Trust",how:"Solve all 10 Control Room levels"}],u0=["Nice catch!","Great thinking!","You got it!","Sharp eyes!","Exactly right!","Well done, defender!"],m0=["Almost! Here is the trick:","Good try. Here is what to look for:","Not this time. Remember:","Close! Keep this in mind:"];var T0=(e,t,s)=>`<svg viewBox="${e}" role="img" aria-label="${s}" xmlns="http://www.w3.org/2000/svg">${t}</svg>`;function de(e=64){return`<svg width="${e}" height="${e}" viewBox="0 0 64 64" aria-hidden="true">
   <circle cx="32" cy="32" r="31" fill="var(--sky)"/>
   <path d="M14 58c2-10 9-15 18-15s16 5 18 15" fill="var(--teal)"/>
   <rect x="29" y="47" width="6" height="7" rx="1" fill="var(--sun)"/>
@@ -716,2020 +9,414 @@
   <circle cx="32" cy="19" r="2.6" fill="var(--sun)"/>
   <circle cx="27" cy="32" r="1.6" fill="var(--ink)"/><circle cx="37" cy="32" r="1.6" fill="var(--ink)"/>
   <path d="M28 37c2 2 6 2 8 0" stroke="var(--ink)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-</svg>`;
-  }
-  var AV = [["#F5A623", "#3A2B25"], ["#17807E", "#1C1A24"], ["#E8604C", "#7A4A2A"], ["#3C9D5D", "#C9862B"], ["#8A5BB8", "#2E2A3B"], ["#3B6FB6", "#B5652E"]];
-  function avatar(i, size = 44) {
-    const [bg, hair] = AV[i % AV.length];
-    const hairs = [
-      `<path d="M14 24c0-8 6-12 12-12s12 4 12 12c-3-4-7-5-12-5s-9 1-12 5z" fill="${hair}"/>`,
-      `<path d="M13 26c-1-10 6-15 13-15s14 5 13 15c-2-1-3-6-6-7-4 3-10 3-14 0-3 1-4 6-6 7z" fill="${hair}"/>`,
-      `<rect x="13" y="12" width="26" height="8" rx="4" fill="${hair}"/><rect x="11" y="18" width="30" height="3" rx="1.5" fill="${hair}"/>`,
-      `<path d="M14 24c0-9 6-13 12-13s12 4 12 13l-3 8c-1-8-4-12-9-12s-8 4-9 12z" fill="${hair}"/>`,
-      `<circle cx="18" cy="15" r="5" fill="${hair}"/><circle cx="34" cy="15" r="5" fill="${hair}"/><path d="M15 22c0-6 5-9 11-9s11 3 11 9" fill="${hair}"/>`,
-      `<path d="M15 20c3-7 19-7 22 0v3H15z" fill="${hair}"/><rect x="24" y="9" width="4" height="6" rx="2" fill="${hair}"/>`
-    ];
-    return `<svg width="${size}" height="${size}" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="25" fill="${bg}"/>
+</svg>`}var f0=[["#F5A623","#3A2B25"],["#17807E","#1C1A24"],["#E8604C","#7A4A2A"],["#3C9D5D","#C9862B"],["#8A5BB8","#2E2A3B"],["#3B6FB6","#B5652E"]];function Ie(e,t=44){let[s,o]=f0[e%f0.length],n=[`<path d="M14 24c0-8 6-12 12-12s12 4 12 12c-3-4-7-5-12-5s-9 1-12 5z" fill="${o}"/>`,`<path d="M13 26c-1-10 6-15 13-15s14 5 13 15c-2-1-3-6-6-7-4 3-10 3-14 0-3 1-4 6-6 7z" fill="${o}"/>`,`<rect x="13" y="12" width="26" height="8" rx="4" fill="${o}"/><rect x="11" y="18" width="30" height="3" rx="1.5" fill="${o}"/>`,`<path d="M14 24c0-9 6-13 12-13s12 4 12 13l-3 8c-1-8-4-12-9-12s-8 4-9 12z" fill="${o}"/>`,`<circle cx="18" cy="15" r="5" fill="${o}"/><circle cx="34" cy="15" r="5" fill="${o}"/><path d="M15 22c0-6 5-9 11-9s11 3 11 9" fill="${o}"/>`,`<path d="M15 20c3-7 19-7 22 0v3H15z" fill="${o}"/><rect x="24" y="9" width="4" height="6" rx="2" fill="${o}"/>`];return`<svg width="${t}" height="${t}" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="25" fill="${s}"/>
   <path d="M10 50c2-8 8-12 16-12s14 4 16 12" fill="#FFF8EE" opacity=".9"/><circle cx="26" cy="25" r="10" fill="#E2B48C"/>
-  ${hairs[i % hairs.length]}<circle cx="22.5" cy="26" r="1.3" fill="#2E2A3B"/><circle cx="29.5" cy="26" r="1.3" fill="#2E2A3B"/>
-  <path d="M23 30c1.6 1.4 4.4 1.4 6 0" stroke="#2E2A3B" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>`;
-  }
-  function building(ch) {
-    const c = ch.color;
-    const roof = (y) => `<path d="M14 ${y}L60 ${y - 26}L106 ${y}z" fill="${c}"/>`;
-    const base = `<rect x="6" y="88" width="108" height="6" rx="3" fill="var(--grass-dark)"/>`;
-    const door = `<rect x="52" y="64" width="16" height="24" rx="8" fill="var(--ink)" opacity=".85"/>`;
-    const walls = `<rect x="20" y="46" width="80" height="42" rx="3" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>`;
-    const win = (x) => `<rect x="${x}" y="54" width="14" height="12" rx="2" fill="var(--sky)" stroke="var(--ink)" stroke-width="1.5"/>`;
-    const sign = {
-      hall: `<circle cx="60" cy="32" r="13" fill="${c}"/><rect x="58" y="10" width="4" height="10" fill="var(--ink)"/><path d="M62 10h10l-3 3 3 3H62z" fill="var(--coral)"/>${walls}<rect x="28" y="50" width="6" height="38" fill="${c}" opacity=".5"/><rect x="86" y="50" width="6" height="38" fill="${c}" opacity=".5"/>${door}`,
-      lock: `${roof(46)}${walls}${win(28)}${win(78)}${door}<rect x="50" y="26" width="20" height="14" rx="3" fill="var(--sun)"/><path d="M54 26v-4a6 6 0 0 1 12 0v4" stroke="var(--ink)" stroke-width="2.5" fill="none"/>`,
-      mail: `${roof(46)}${walls}${win(28)}${win(78)}${door}<rect x="47" y="24" width="26" height="16" rx="2" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M47 25l13 9 13-9" stroke="var(--ink)" stroke-width="2" fill="none"/>`,
-      tools: `${roof(46)}${walls}${win(28)}${win(78)}${door}<path d="M50 38l12-12m-4 0h6v6" stroke="var(--ink)" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="50" cy="38" r="3" fill="var(--sun)"/>`,
-      gate: `<rect x="14" y="30" width="22" height="58" fill="${c}"/><rect x="84" y="30" width="22" height="58" fill="${c}"/><path d="M14 30h22v-6h-5v4h-4v-4h-4v4h-4v-4h-5zM84 30h22v-6h-5v4h-4v-4h-4v4h-4v-4h-5z" fill="${c}"/><path d="M36 88V50a24 24 0 0 1 48 0v38" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>${[44, 52, 60, 68, 76].map((x) => `<rect x="${x - 1}" y="44" width="2.5" height="44" fill="var(--ink)"/>`).join("")}`,
-      workshop: `<path d="M14 46l30-20 16 10 16-10 30 20z" fill="${c}"/>${walls}${win(28)}${win(78)}${door}<circle cx="60" cy="36" r="6" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>`,
-      tower: `<rect x="44" y="30" width="32" height="58" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M38 30l22-20 22 20z" fill="${c}"/><rect x="50" y="40" width="20" height="12" rx="2" fill="var(--sky)" stroke="var(--ink)" stroke-width="1.5"/><ellipse cx="60" cy="46" rx="6" ry="4" fill="var(--paper)"/><circle cx="60" cy="46" r="2.4" fill="var(--ink)"/><rect x="54" y="66" width="12" height="22" rx="6" fill="var(--ink)" opacity=".85"/>`,
-      shield: `<rect x="20" y="46" width="80" height="42" rx="3" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M60 14l22 8v14c0 14-10 22-22 26-12-4-22-12-22-26V22z" fill="${c}"/><path d="M52 34l6 6 11-12" stroke="var(--sun)" stroke-width="3.5" fill="none" stroke-linecap="round"/>${door}`
-    };
-    return svg("0 0 120 96", sign[ch.icon] + base, ch.place);
-  }
-  function art(key) {
-    const T = (x, y, t, cls = "a-t") => `<text x="${x}" y="${y}" class="${cls}">${t}</text>`;
-    const box = (x, y, w, h, fill) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${fill}" stroke="var(--ink)" stroke-width="2"/>`;
-    const env = (x, y, fill = "var(--paper)") => `<g transform="translate(${x} ${y})"><rect width="64" height="42" rx="5" fill="${fill}" stroke="var(--ink)" stroke-width="2"/><path d="M0 2l32 22L64 2" stroke="var(--ink)" stroke-width="2" fill="none"/></g>`;
-    const A = {
-      town: `${[[20, "var(--sun)"], [92, "var(--teal)"], [164, "var(--coral)"], [236, "var(--leaf)"]].map(([x, c]) => `<rect x="${x}" y="${90 - Number(x) % 3 * 12}" width="56" height="${70 + Number(x) % 3 * 12}" rx="4" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M${Number(x) - 4} ${92 - Number(x) % 3 * 12}l32-24 32 24z" fill="${c}"/><rect x="${Number(x) + 20}" y="136" width="16" height="24" rx="8" fill="var(--ink)" opacity=".8"/>`).join("")}<rect x="0" y="160" width="320" height="10" rx="5" fill="var(--grass-dark)"/><path d="M40 40c20-20 60-20 80 0" stroke="var(--teal)" stroke-width="3" fill="none" stroke-dasharray="6 6"/><path d="M200 40c20-20 60-20 80 0" stroke="var(--teal)" stroke-width="3" fill="none" stroke-dasharray="6 6"/>`,
-      cia: `<path d="M160 18L292 176H28z" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.5"/><circle cx="160" cy="28" r="22" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>${T(152, 36, "C", "a-big")}<circle cx="40" cy="166" r="22" fill="var(--teal)" stroke="var(--ink)" stroke-width="2"/>${T(33, 174, "I", "a-big a-light")}<circle cx="280" cy="166" r="22" fill="var(--coral)" stroke="var(--ink)" stroke-width="2"/>${T(271, 174, "A", "a-big a-light")}${T(115, 120, "Protect all three")}`,
-      attackers: `${box(20, 40, 84, 110, "var(--sun)")}${box(118, 40, 84, 110, "var(--sky)")}${box(216, 40, 84, 110, "var(--coral-soft)")}${T(46, 102, "$", "a-big")}${T(140, 100, "KEY", "a-mid")}${T(232, 100, "WOW", "a-mid")}${T(36, 172, "Money")}${T(136, 172, "Secrets")}${T(228, 172, "Show off")}`,
-      password: `${box(24, 40, 272, 44, "var(--paper)")}${T(40, 68, "dragon123", "a-mono")}<rect x="186" y="56" width="96" height="12" rx="6" fill="var(--line)"/><rect x="186" y="56" width="22" height="12" rx="6" fill="var(--coral)"/>${box(24, 110, 272, 44, "var(--paper)")}${T(40, 138, "blue-river-pizza-cloud", "a-mono")}<rect x="236" y="126" width="46" height="12" rx="6" fill="var(--leaf)"/>${T(40, 186, "Longer = stronger")}`,
-      mfa: `${box(30, 40, 110, 110, "var(--sun-soft)")}${T(58, 100, "****", "a-mono")}${T(42, 172, "Something you know")}${T(156, 98, "+", "a-big")}${box(186, 34, 74, 122, "var(--sky)")}<rect x="198" y="52" width="50" height="60" rx="4" fill="var(--paper)"/>${T(205, 88, "482 913", "a-mono-s")}<circle cx="223" cy="134" r="7" fill="var(--paper)"/>${T(172, 172, "Something you have")}`,
-      phish: `<path d="M40 100c40-50 140-50 180 0-40 50-140 50-180 0z" fill="var(--sky)" stroke="var(--ink)" stroke-width="2.5"/><path d="M220 100l40-30v60z" fill="var(--sky)" stroke="var(--ink)" stroke-width="2.5"/><circle cx="80" cy="92" r="6" fill="var(--ink)"/>${env(120, 78, "var(--paper)")}<path d="M60 20v40" stroke="var(--ink)" stroke-width="2"/><path d="M60 60c0 12 14 12 14 0" stroke="var(--ink)" stroke-width="2.5" fill="none"/>${T(100, 186, "Fake message, real hook")}`,
-      flags: `${box(20, 24, 280, 150, "var(--paper)")}${T(36, 54, "From: support@netfIix-help.co", "a-mono-s")}${T(36, 84, "URGENT: account closes in 1 hour", "a-mono-s")}${T(36, 114, "Click here and type your password", "a-mono-s")}${[48, 78, 108].map((y) => `<path d="M286 ${y - 12}v18" stroke="var(--ink)" stroke-width="2"/><path d="M286 ${y - 12}h-14l4 5-4 5h14z" fill="var(--coral)"/>`).join("")}${T(36, 156, "3 red flags in one email", "a-t")}`,
-      report: `${[["STOP", "var(--coral)", 20], ["CHECK", "var(--sun)", 118], ["REPORT", "var(--leaf)", 216]].map(([t, c, x]) => `<circle cx="${Number(x) + 42}" cy="88" r="42" fill="${c}" stroke="var(--ink)" stroke-width="2"/>${T(Number(x) + (String(t).length > 4 ? 14 : 22), 95, String(t), "a-mid")}`).join("")}<path d="M106 88h8m90 0h8" stroke="var(--ink)" stroke-width="3"/>`,
-      controls: `${box(18, 30, 88, 130, "var(--sun-soft)")}${box(116, 30, 88, 130, "var(--sky)")}${box(214, 30, 88, 130, "var(--leaf-soft)")}<rect x="48" y="80" width="28" height="22" rx="4" fill="var(--ink)"/><path d="M53 80v-8a9 9 0 0 1 18 0v8" stroke="var(--ink)" stroke-width="4" fill="none"/><rect x="138" y="76" width="34" height="22" rx="4" fill="var(--ink)"/><path d="M172 82l12-6v22l-12-6z" fill="var(--ink)"/><path d="M240 92a20 20 0 1 0 6-16" stroke="var(--ink)" stroke-width="4" fill="none"/><path d="M244 66l2 12 12-4" stroke="var(--ink)" stroke-width="4" fill="none"/>${T(36, 186, "Prevent")}${T(136, 186, "Detect")}${T(244, 186, "Fix")}`,
-      controlKinds: `${box(18, 30, 88, 130, "var(--paper)")}${box(116, 30, 88, 130, "var(--paper)")}${box(214, 30, 88, 130, "var(--paper)")}${[40, 54, 68, 82].map((x) => `<rect x="${x}" y="70" width="6" height="56" fill="var(--ink)"/>`).join("")}<rect x="36" y="80" width="56" height="5" fill="var(--ink)"/><rect x="134" y="66" width="52" height="38" rx="4" fill="var(--sky)" stroke="var(--ink)" stroke-width="2"/><rect x="150" y="104" width="20" height="10" fill="var(--ink)"/><rect x="234" y="58" width="48" height="66" rx="3" fill="var(--sun-soft)" stroke="var(--ink)" stroke-width="2"/>${[74, 86, 98, 110].map((y) => `<rect x="242" y="${y}" width="32" height="4" rx="2" fill="var(--ink)" opacity=".6"/>`).join("")}${T(30, 186, "Physical")}${T(128, 186, "Technical")}${T(212, 186, "Administrative", "a-t a-small")}`,
-      packet: `${env(30, 60, "var(--sun-soft)")}${env(128, 60, "var(--sun-soft)")}${env(226, 60, "var(--sun-soft)")}${T(30, 136, "From: 198.51.100.7", "a-mono-s")}${T(30, 156, "To: 10.0.1.10   Door: 443", "a-mono-s")}<path d="M98 81h26m72 0h26" stroke="var(--ink)" stroke-width="2" stroke-dasharray="4 4"/>`,
-      ports: `${[[24, "80", "var(--leaf-soft)"], [84, "443", "var(--leaf-soft)"], [144, "22", "var(--coral-soft)"], [204, "3389", "var(--coral-soft)"], [264, "445", "var(--coral-soft)"]].map(([x, t, c]) => `<rect x="${x}" y="50" width="44" height="80" rx="22" fill="${c}" stroke="var(--ink)" stroke-width="2"/>${T(Number(x) + (String(t).length > 3 ? 4 : String(t).length > 2 ? 9 : 14), 98, String(t), "a-mono")}`).join("")}${T(24, 166, "Open: 80, 443", "a-t")}${T(178, 166, "Shut: the rest", "a-t")}`,
-      firewall: `${env(20, 70, "var(--sun-soft)")}<rect x="140" y="20" width="40" height="160" fill="var(--coral-soft)" stroke="var(--ink)" stroke-width="2"/>${[40, 70, 100, 130, 160].map((y) => `<path d="M140 ${y}h40" stroke="var(--ink)" stroke-width="1.5"/>`).join("")}<path d="M90 91h44" stroke="var(--ink)" stroke-width="2.5"/><path d="M128 85l8 6-8 6" fill="var(--ink)"/>${box(206, 56, 96, 74, "var(--paper)")}${T(216, 82, "Rules", "a-t")}${T(216, 104, "+ 80, 443", "a-mono-s")}${T(216, 120, "x the rest", "a-mono-s")}`,
-      order: `${[["1", "Block bad IP", "var(--coral-soft)"], ["2", "Allow 443", "var(--leaf-soft)"], ["3", "Block everything", "var(--coral-soft)"]].map(([nn, t, c], i) => `${box(60, 22 + i * 54, 200, 42, c)}${T(76, 49 + i * 54, `${nn}.  ${t}`, "a-t")}`).join("")}<path d="M36 30v140" stroke="var(--teal)" stroke-width="3"/><path d="M28 162l8 12 8-12" fill="var(--teal)"/>${T(270, 49, "first", "a-t a-small")}`,
-      ids: `<rect x="130" y="40" width="60" height="140" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M120 40l40-30 40 30z" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/><ellipse cx="160" cy="76" rx="18" ry="11" fill="var(--sky)" stroke="var(--ink)" stroke-width="2"/><circle cx="160" cy="76" r="5" fill="var(--ink)"/>${env(20, 120, "var(--sun-soft)")}${env(236, 120, "var(--sun-soft)")}<path d="M142 86L70 124M178 86l72 38" stroke="var(--sun)" stroke-width="3" stroke-dasharray="5 5"/>`,
-      signature: `${box(24, 26, 128, 150, "var(--paper)")}${T(44, 54, "WANTED", "a-mid")}${box(42, 70, 92, 50, "var(--coral-soft)")}${T(52, 101, "OR 1=1", "a-mono")}${T(44, 156, "Signature", "a-t")}${box(168, 26, 128, 150, "var(--paper)")}<path d="M184 140l18-14 18 6 18-20 18 4" stroke="var(--teal)" stroke-width="3" fill="none"/><path d="M256 116l16-72" stroke="var(--coral)" stroke-width="3"/><circle cx="272" cy="44" r="6" fill="var(--coral)"/>${T(188, 168, "Anomaly", "a-t")}`,
-      ips: `${env(16, 80, "var(--sun-soft)")}<path d="M84 101h40" stroke="var(--ink)" stroke-width="2.5"/>${box(130, 50, 70, 100, "var(--teal)")}${T(146, 108, "IPS", "a-mid a-light")}<path d="M206 101h36" stroke="var(--ink)" stroke-width="2.5" stroke-dasharray="4 4"/><circle cx="270" cy="101" r="26" fill="var(--coral-soft)" stroke="var(--coral)" stroke-width="4"/><path d="M252 83l36 36" stroke="var(--coral)" stroke-width="5"/>${T(110, 184, "Sits in the path. Can block.")}`,
-      castle: `<rect x="10" y="150" width="300" height="24" rx="12" fill="var(--sky)"/>${T(18, 168, "moat: training", "a-t a-small")}<rect x="40" y="60" width="240" height="92" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>${[40, 80, 120, 160, 200, 240].map((x) => `<rect x="${x}" y="48" width="20" height="14" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>`).join("")}${T(50, 84, "wall: firewall", "a-t a-small")}<rect x="110" y="96" width="100" height="56" fill="var(--sun-soft)" stroke="var(--ink)" stroke-width="2"/>${T(118, 116, "guards: IPS", "a-t a-small")}<rect x="140" y="122" width="40" height="30" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>${T(222, 116, "vault: MFA", "a-t a-small")}`
-    };
-    return svg("0 0 320 200", A[key], key);
-  }
-
-  // src/state.ts
-  var KEY = "byteville-defenders-v1";
-  var fresh = () => ({
-    points: 0,
-    stars: {},
-    best: {},
-    badges: [],
-    done: [],
-    unlocked: 1,
-    streak: 0,
-    bestStreak: 0,
-    quick: 0,
-    answered: 0,
-    correct: 0,
-    playMs: 0,
-    nwSolved: [],
-    nwUnlocked: 1,
-    nwHints: {}
-  });
-  function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        return { profile: s.profile || null, progress: Object.assign(fresh(), s.progress || {}), sound: s.sound !== false };
-      }
-    } catch (_) {
-    }
-    return { profile: null, progress: fresh(), sound: true };
-  }
-  var store = load();
-  function persist() {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(store));
-    } catch (_) {
-    }
-  }
-  function newSessionId() {
-    const r = Math.random().toString(36).slice(2, 8);
-    return `s-${Date.now().toString(36)}-${r}`;
-  }
-  function resetProgress() {
-    store.progress = fresh();
-    persist();
-  }
-  function rankFor(points) {
-    let idx = 0;
-    RANKS.forEach((r, i) => {
-      if (points >= r[0]) idx = i;
-    });
-    return { name: RANKS[idx][1], floor: RANKS[idx][0], next: idx + 1 < RANKS.length ? RANKS[idx + 1][0] : null };
-  }
-  function award(id2) {
-    const p = store.progress;
-    if (p.badges.includes(id2)) return null;
-    const b = BADGES.find((x) => x.id === id2);
-    if (!b) return null;
-    p.badges.push(id2);
-    persist();
-    return b.name;
-  }
-  function totalStars() {
-    return Object.values(store.progress.stars).reduce((a, b) => a + b, 0);
-  }
-  var maxStars = () => CHAPTERS.length * 3;
-
-  // src/tracker.ts
-  function config() {
-    const w = window;
-    return w.BYTEVILLE_CONFIG || {};
-  }
-  var QUEUE_KEY = "byteville-queue-v1";
-  var LOG_KEY = "byteville-log-v1";
-  function read(key) {
-    try {
-      return JSON.parse(localStorage.getItem(key) || "[]");
-    } catch (_) {
-      return [];
-    }
-  }
-  function write(key, v) {
-    try {
-      localStorage.setItem(key, JSON.stringify(v));
-    } catch (_) {
-    }
-  }
-  var queue = read(QUEUE_KEY);
-  var sending = false;
-  function track(e) {
-    const prof = store.profile;
-    const full = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      session_id: prof ? prof.sessionId : "",
-      student: prof ? prof.name : "",
-      class_code: prof ? prof.classCode : "",
-      chapter: "",
-      item_id: "",
-      prompt: "",
-      choice: "",
-      correct_answer: "",
-      correct: "",
-      time_ms: "",
-      points: 0,
-      total_points: store.progress.points,
-      ...e
-    };
-    const log = read(LOG_KEY);
-    log.push(full);
-    write(LOG_KEY, log.slice(-3e3));
-    if (config().trackingUrl) {
-      queue.push(full);
-      write(QUEUE_KEY, queue);
-      if (queue.length >= 8 || e.event === "chapter_complete" || e.event === "finish") flush();
-    }
-  }
-  async function flush() {
-    const url = config().trackingUrl;
-    if (!url || sending || queue.length === 0) return;
-    sending = true;
-    const batch = queue.slice(0, 50);
-    try {
-      await fetch(url, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ key: config().classKey || "", events: batch })
-      });
-      queue = queue.slice(batch.length);
-      write(QUEUE_KEY, queue);
-    } catch (_) {
-    } finally {
-      sending = false;
-    }
-  }
-  setInterval(() => {
-    void flush();
-  }, 15e3);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void flush();
-  });
-  function trackingOn() {
-    return !!config().trackingUrl;
-  }
-  async function leaderboard(classCode) {
-    const c = config();
-    if (!c.trackingUrl || c.showLeaderboard === false || !classCode) return null;
-    try {
-      const r = await fetch(`${c.trackingUrl}?action=leaderboard&class=${encodeURIComponent(classCode)}`);
-      if (!r.ok) return null;
-      const data = await r.json();
-      return data.rows || [];
-    } catch (_) {
-      return null;
-    }
-  }
-  function myCsv() {
-    const cols = ["timestamp", "session_id", "student", "class_code", "event", "chapter", "item_id", "prompt", "choice", "correct_answer", "correct", "time_ms", "points", "total_points"];
-    const esc2 = (v) => {
-      const s = String(v != null ? v : "");
-      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    };
-    return [cols.join(",")].concat(read(LOG_KEY).map((e) => cols.map((k) => esc2(e[k])).join(","))).join("\n");
-  }
-
-  // src/ui.ts
-  var $ = (sel, root = document) => root.querySelector(sel);
-  function esc(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
-  var ac = null;
-  function tone(freq, dur, type = "triangle", vol = 0.05, delay = 0) {
-    if (!store.sound) return;
-    try {
-      const W = window;
-      ac = ac || new (window.AudioContext || W.webkitAudioContext)();
-      const o = ac.createOscillator();
-      const g = ac.createGain();
-      const t = ac.currentTime + delay;
-      o.type = type;
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(vol, t);
-      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
-      o.connect(g);
-      g.connect(ac.destination);
-      o.start(t);
-      o.stop(t + dur);
-    } catch (_) {
-    }
-  }
-  var sfx = {
-    right: (streak = 0) => {
-      const b = 520 + Math.min(streak, 8) * 40;
-      tone(b, 0.1);
-      tone(b * 1.5, 0.12, "triangle", 0.045, 0.07);
-    },
-    wrong: () => {
-      tone(220, 0.18, "sine", 0.06);
-      tone(165, 0.25, "sine", 0.05, 0.12);
-    },
-    click: () => tone(700, 0.04, "square", 0.02),
-    badge: () => [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.18, "triangle", 0.05, i * 0.1)),
-    win: () => [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.2, "triangle", 0.055, i * 0.11)),
-    gold: () => [880, 1175, 1568].forEach((f, i) => tone(f, 0.12, "square", 0.03, i * 0.06))
-  };
-  var toastQ = [];
-  var toastBusy = false;
-  function toast(text, kind = "info") {
-    if (kind === "info" && (toastBusy || toastQ.length)) return;
-    toastQ.push(`<div class="toast-in ${kind}">${text}</div>`);
-    if (!toastBusy) nextToast();
-  }
-  function nextToast() {
-    const box = $("#toast");
-    const t = toastQ.shift();
-    if (!t) {
-      toastBusy = false;
-      box.hidden = true;
-      return;
-    }
-    toastBusy = true;
-    box.innerHTML = t;
-    box.hidden = false;
-    setTimeout(nextToast, toastQ.length ? 1800 : 2600);
-  }
-  function modal(markup, buttons) {
-    const ov = $("#overlay");
-    const box = $("#modal");
-    box.innerHTML = markup + '<div class="modal-actions"></div>';
-    const row = $(".modal-actions", box);
-    buttons.forEach((b, i) => {
-      const btn = document.createElement("button");
-      btn.className = "btn" + (b.primary ? " btn-primary" : "");
-      btn.textContent = b.label;
-      btn.addEventListener("click", () => {
-        ov.hidden = true;
-        b.onClick();
-      });
-      row.appendChild(btn);
-      if (i === 0) setTimeout(() => btn.focus(), 30);
-    });
-    ov.hidden = false;
-  }
-  var modalOpen = () => !$("#overlay").hidden;
-  function floatPoints(anchor, text, gold = false) {
-    const r = anchor.getBoundingClientRect();
-    const d = document.createElement("div");
-    d.className = "float-pts" + (gold ? " gold" : "");
-    d.textContent = text;
-    d.style.left = `${r.left + r.width / 2}px`;
-    d.style.top = `${r.top + window.scrollY}px`;
-    document.body.appendChild(d);
-    setTimeout(() => d.remove(), 1e3);
-  }
-  function confetti() {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const colors = ["#F5A623", "#17807E", "#E8604C", "#3C9D5D", "#8A5BB8", "#3B6FB6"];
-    for (let i = 0; i < 70; i++) {
-      const c = document.createElement("i");
-      c.className = "confetti";
-      c.style.left = Math.random() * 100 + "vw";
-      c.style.background = colors[i % colors.length];
-      c.style.animationDelay = Math.random() * 0.5 + "s";
-      c.style.transform = `rotate(${Math.random() * 360}deg)`;
-      document.body.appendChild(c);
-      setTimeout(() => c.remove(), 2600);
-    }
-  }
-  function download(name, text, type = "text/csv") {
-    const blob = new Blob([text], { type });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 500);
-  }
-
-  // src/stages/common.ts
-  var pick2 = (a) => a[Math.floor(Math.random() * a.length)];
-  function stageHead(title, intro, count) {
-    return `<div class="stage-head">
-    <div><div class="eyebrow">Challenge</div><h2>${esc(title)}</h2><p class="stage-intro">${esc(intro)}</p></div>
-    <div class="stage-count" aria-live="polite">${count}</div></div>`;
-  }
-  function feedback(box, ok, explain, pts, anchor, next, autoMs = 1500) {
-    box.className = "feedback " + (ok ? "ok" : "no");
-    box.innerHTML = `<div class="fb-title">${ok ? pick2(PRAISE) : pick2(ENCOURAGE)}${ok && pts ? ` <span class="fb-pts">+${pts}</span>` : ""}</div><p>${explain}</p>`;
-    box.hidden = false;
-    if (ok && anchor && pts) floatPoints(anchor, `+${pts}`);
-    if (ok) {
-      const t = setTimeout(next, autoMs);
-      const skip = document.createElement("button");
-      skip.className = "btn btn-small";
-      skip.textContent = "Next";
-      skip.addEventListener("click", () => {
-        clearTimeout(t);
-        next();
-      });
-      box.appendChild(skip);
-    } else {
-      const b = document.createElement("button");
-      b.className = "btn btn-primary btn-small";
-      b.textContent = "Got it, next";
-      b.addEventListener("click", next);
-      box.appendChild(b);
-      setTimeout(() => b.focus(), 30);
-    }
-  }
-
-  // src/stages/sort.ts
-  function runSort(root, st, ctx) {
-    const cards = st.cards.slice().sort(() => Math.random() - 0.5);
-    let k = 0;
-    let t0 = 0;
-    let locked = false;
-    const draw = () => {
-      if (k >= cards.length) return ctx.done();
-      const c = cards[k];
-      locked = false;
-      root.innerHTML = stageHead(st.title, st.intro, `${k + 1} / ${cards.length}`) + `
-      <div class="sort-card" tabindex="-1">${esc(c.text)}</div>
-      <div class="bins">${st.bins.map((b, i) => `<button class="bin" data-i="${i}"><span class="bin-key">${i + 1}</span><b>${esc(b.label)}</b><small>${esc(b.hint)}</small></button>`).join("")}</div>
-      <div class="feedback" hidden></div>`;
-      t0 = performance.now();
-      root.querySelectorAll(".bin").forEach((btn) => btn.addEventListener("click", () => choose(Number(btn.dataset.i), btn)));
-    };
-    const choose = (i, btn) => {
-      if (locked) return;
-      locked = true;
-      const c = cards[k];
-      const ok = i === c.bin;
-      root.querySelectorAll(".bin").forEach((b, j) => {
-        b.disabled = true;
-        if (j === c.bin) b.classList.add("is-right");
-        else if (j === i) b.classList.add("is-wrong");
-      });
-      const pts = ctx.answer({ itemId: c.id, prompt: c.text, choice: st.bins[i].label, correctAnswer: st.bins[c.bin].label, correct: ok, timeMs: performance.now() - t0 });
-      ok ? sfx.right() : sfx.wrong();
-      feedback(root.querySelector(".feedback"), ok, c.explain, pts, btn, () => {
-        k++;
-        draw();
-      });
-    };
-    const onKey = (e) => {
-      if (!document.body.contains(root) || !root.querySelector(".bins")) {
-        document.removeEventListener("keydown", onKey);
-        return;
-      }
-      const n2 = Number(e.key);
-      if (n2 >= 1 && n2 <= st.bins.length && !locked) {
-        const btn = root.querySelector(`.bin[data-i="${n2 - 1}"]`);
-        choose(n2 - 1, btn);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    draw();
-  }
-
-  // src/stages/choice.ts
-  function askOne(box, item, style, onAnswer, next) {
-    const t0 = performance.now();
-    let locked = false;
-    box.innerHTML = `<p class="q-prompt">${esc(item.prompt)}</p>
-    <div class="${style === "pair" ? "pair" : "opts"}">${item.options.map((o, i) => `<button class="${style === "pair" ? "pair-card" : "opt"}" data-i="${i}">${style === "pair" ? `<span class="pair-tag">${i === 0 ? "Left" : "Right"}</span><span class="pair-text">${esc(o)}</span>` : `<span class="opt-key">${String.fromCharCode(65 + i)}</span>${esc(o)}`}</button>`).join("")}</div>
-    <div class="feedback" hidden></div>`;
-    const buttons = Array.from(box.querySelectorAll("[data-i]"));
-    buttons.forEach((b) => b.addEventListener("click", () => {
-      if (locked) return;
-      locked = true;
-      const i = Number(b.dataset.i);
-      const ok = i === item.answer;
-      buttons.forEach((x, j) => {
-        x.disabled = true;
-        if (j === item.answer) x.classList.add("is-right");
-        else if (j === i) x.classList.add("is-wrong");
-      });
-      ok ? sfx.right() : sfx.wrong();
-      const pts = onAnswer(i, ok, performance.now() - t0);
-      feedback(box.querySelector(".feedback"), ok, item.explain, pts, b, next, 1800);
-    }));
-  }
-  function runChoice(root, st, ctx) {
-    let k = 0;
-    const draw = () => {
-      if (k >= st.items.length) return ctx.done();
-      const item = st.items[k];
-      root.innerHTML = stageHead(st.title, st.intro, `${k + 1} / ${st.items.length}`) + '<div class="q-box"></div>';
-      askOne(
-        root.querySelector(".q-box"),
-        item,
-        st.style || "list",
-        (i, ok, ms) => ctx.answer({ itemId: item.id, prompt: item.prompt, choice: item.options[i], correctAnswer: item.options[item.answer], correct: ok, timeMs: ms }),
-        () => {
-          k++;
-          draw();
-        }
-      );
-    };
-    draw();
-  }
-
-  // src/stages/inbox.ts
-  function runInbox(root, st, ctx) {
-    const result = {};
-    let current = 0;
-    let t0 = performance.now();
-    const left = () => st.emails.filter((m) => result[m.id] === void 0).length;
-    const draw = () => {
-      const m = st.emails[current];
-      const answered = result[m.id] !== void 0;
-      root.innerHTML = stageHead(st.title, st.intro, `${st.emails.length - left()} / ${st.emails.length} checked`) + `
+  ${n[e%n.length]}<circle cx="22.5" cy="26" r="1.3" fill="#2E2A3B"/><circle cx="29.5" cy="26" r="1.3" fill="#2E2A3B"/>
+  <path d="M23 30c1.6 1.4 4.4 1.4 6 0" stroke="#2E2A3B" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>`}function w0(e){let t=e.color,s=u=>`<path d="M14 ${u}L60 ${u-26}L106 ${u}z" fill="${t}"/>`,o='<rect x="6" y="88" width="108" height="6" rx="3" fill="var(--grass-dark)"/>',n='<rect x="52" y="64" width="16" height="24" rx="8" fill="var(--ink)" opacity=".85"/>',r='<rect x="20" y="46" width="80" height="42" rx="3" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>',i=u=>`<rect x="${u}" y="54" width="14" height="12" rx="2" fill="var(--sky)" stroke="var(--ink)" stroke-width="1.5"/>`,c={hall:`<circle cx="60" cy="32" r="13" fill="${t}"/><rect x="58" y="10" width="4" height="10" fill="var(--ink)"/><path d="M62 10h10l-3 3 3 3H62z" fill="var(--coral)"/>${r}<rect x="28" y="50" width="6" height="38" fill="${t}" opacity=".5"/><rect x="86" y="50" width="6" height="38" fill="${t}" opacity=".5"/>${n}`,lock:`${s(46)}${r}${i(28)}${i(78)}${n}<rect x="50" y="26" width="20" height="14" rx="3" fill="var(--sun)"/><path d="M54 26v-4a6 6 0 0 1 12 0v4" stroke="var(--ink)" stroke-width="2.5" fill="none"/>`,mail:`${s(46)}${r}${i(28)}${i(78)}${n}<rect x="47" y="24" width="26" height="16" rx="2" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M47 25l13 9 13-9" stroke="var(--ink)" stroke-width="2" fill="none"/>`,tools:`${s(46)}${r}${i(28)}${i(78)}${n}<path d="M50 38l12-12m-4 0h6v6" stroke="var(--ink)" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="50" cy="38" r="3" fill="var(--sun)"/>`,gate:`<rect x="14" y="30" width="22" height="58" fill="${t}"/><rect x="84" y="30" width="22" height="58" fill="${t}"/><path d="M14 30h22v-6h-5v4h-4v-4h-4v4h-4v-4h-5zM84 30h22v-6h-5v4h-4v-4h-4v4h-4v-4h-5z" fill="${t}"/><path d="M36 88V50a24 24 0 0 1 48 0v38" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>${[44,52,60,68,76].map(u=>`<rect x="${u-1}" y="44" width="2.5" height="44" fill="var(--ink)"/>`).join("")}`,workshop:`<path d="M14 46l30-20 16 10 16-10 30 20z" fill="${t}"/>${r}${i(28)}${i(78)}${n}<circle cx="60" cy="36" r="6" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>`,tower:`<rect x="44" y="30" width="32" height="58" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M38 30l22-20 22 20z" fill="${t}"/><rect x="50" y="40" width="20" height="12" rx="2" fill="var(--sky)" stroke="var(--ink)" stroke-width="1.5"/><ellipse cx="60" cy="46" rx="6" ry="4" fill="var(--paper)"/><circle cx="60" cy="46" r="2.4" fill="var(--ink)"/><rect x="54" y="66" width="12" height="22" rx="6" fill="var(--ink)" opacity=".85"/>`,shield:`<rect x="20" y="46" width="80" height="42" rx="3" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M60 14l22 8v14c0 14-10 22-22 26-12-4-22-12-22-26V22z" fill="${t}"/><path d="M52 34l6 6 11-12" stroke="var(--sun)" stroke-width="3.5" fill="none" stroke-linecap="round"/>${n}`};return T0("0 0 120 96",c[e.icon]+o,e.place)}function b0(e){let t=(r,i,c,u="a-t")=>`<text x="${r}" y="${i}" class="${u}">${c}</text>`,s=(r,i,c,u,w)=>`<rect x="${r}" y="${i}" width="${c}" height="${u}" rx="10" fill="${w}" stroke="var(--ink)" stroke-width="2"/>`,o=(r,i,c="var(--paper)")=>`<g transform="translate(${r} ${i})"><rect width="64" height="42" rx="5" fill="${c}" stroke="var(--ink)" stroke-width="2"/><path d="M0 2l32 22L64 2" stroke="var(--ink)" stroke-width="2" fill="none"/></g>`,n={town:`${[[20,"var(--sun)"],[92,"var(--teal)"],[164,"var(--coral)"],[236,"var(--leaf)"]].map(([r,i])=>`<rect x="${r}" y="${90-Number(r)%3*12}" width="56" height="${70+Number(r)%3*12}" rx="4" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M${Number(r)-4} ${92-Number(r)%3*12}l32-24 32 24z" fill="${i}"/><rect x="${Number(r)+20}" y="136" width="16" height="24" rx="8" fill="var(--ink)" opacity=".8"/>`).join("")}<rect x="0" y="160" width="320" height="10" rx="5" fill="var(--grass-dark)"/><path d="M40 40c20-20 60-20 80 0" stroke="var(--teal)" stroke-width="3" fill="none" stroke-dasharray="6 6"/><path d="M200 40c20-20 60-20 80 0" stroke="var(--teal)" stroke-width="3" fill="none" stroke-dasharray="6 6"/>`,cia:`<path d="M160 18L292 176H28z" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.5"/><circle cx="160" cy="28" r="22" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>${t(152,36,"C","a-big")}<circle cx="40" cy="166" r="22" fill="var(--teal)" stroke="var(--ink)" stroke-width="2"/>${t(33,174,"I","a-big a-light")}<circle cx="280" cy="166" r="22" fill="var(--coral)" stroke="var(--ink)" stroke-width="2"/>${t(271,174,"A","a-big a-light")}${t(115,120,"Protect all three")}`,attackers:`${s(20,40,84,110,"var(--sun)")}${s(118,40,84,110,"var(--sky)")}${s(216,40,84,110,"var(--coral-soft)")}${t(46,102,"$","a-big")}${t(140,100,"KEY","a-mid")}${t(232,100,"WOW","a-mid")}${t(36,172,"Money")}${t(136,172,"Secrets")}${t(228,172,"Show off")}`,password:`${s(24,40,272,44,"var(--paper)")}${t(40,68,"dragon123","a-mono")}<rect x="186" y="56" width="96" height="12" rx="6" fill="var(--line)"/><rect x="186" y="56" width="22" height="12" rx="6" fill="var(--coral)"/>${s(24,110,272,44,"var(--paper)")}${t(40,138,"blue-river-pizza-cloud","a-mono")}<rect x="236" y="126" width="46" height="12" rx="6" fill="var(--leaf)"/>${t(40,186,"Longer = stronger")}`,mfa:`${s(30,40,110,110,"var(--sun-soft)")}${t(58,100,"****","a-mono")}${t(42,172,"Something you know")}${t(156,98,"+","a-big")}${s(186,34,74,122,"var(--sky)")}<rect x="198" y="52" width="50" height="60" rx="4" fill="var(--paper)"/>${t(205,88,"482 913","a-mono-s")}<circle cx="223" cy="134" r="7" fill="var(--paper)"/>${t(172,172,"Something you have")}`,phish:`<path d="M40 100c40-50 140-50 180 0-40 50-140 50-180 0z" fill="var(--sky)" stroke="var(--ink)" stroke-width="2.5"/><path d="M220 100l40-30v60z" fill="var(--sky)" stroke="var(--ink)" stroke-width="2.5"/><circle cx="80" cy="92" r="6" fill="var(--ink)"/>${o(120,78,"var(--paper)")}<path d="M60 20v40" stroke="var(--ink)" stroke-width="2"/><path d="M60 60c0 12 14 12 14 0" stroke="var(--ink)" stroke-width="2.5" fill="none"/>${t(100,186,"Fake message, real hook")}`,flags:`${s(20,24,280,150,"var(--paper)")}${t(36,54,"From: support@netfIix-help.co","a-mono-s")}${t(36,84,"URGENT: account closes in 1 hour","a-mono-s")}${t(36,114,"Click here and type your password","a-mono-s")}${[48,78,108].map(r=>`<path d="M286 ${r-12}v18" stroke="var(--ink)" stroke-width="2"/><path d="M286 ${r-12}h-14l4 5-4 5h14z" fill="var(--coral)"/>`).join("")}${t(36,156,"3 red flags in one email","a-t")}`,report:`${[["STOP","var(--coral)",20],["CHECK","var(--sun)",118],["REPORT","var(--leaf)",216]].map(([r,i,c])=>`<circle cx="${Number(c)+42}" cy="88" r="42" fill="${i}" stroke="var(--ink)" stroke-width="2"/>${t(Number(c)+(String(r).length>4?14:22),95,String(r),"a-mid")}`).join("")}<path d="M106 88h8m90 0h8" stroke="var(--ink)" stroke-width="3"/>`,controls:`${s(18,30,88,130,"var(--sun-soft)")}${s(116,30,88,130,"var(--sky)")}${s(214,30,88,130,"var(--leaf-soft)")}<rect x="48" y="80" width="28" height="22" rx="4" fill="var(--ink)"/><path d="M53 80v-8a9 9 0 0 1 18 0v8" stroke="var(--ink)" stroke-width="4" fill="none"/><rect x="138" y="76" width="34" height="22" rx="4" fill="var(--ink)"/><path d="M172 82l12-6v22l-12-6z" fill="var(--ink)"/><path d="M240 92a20 20 0 1 0 6-16" stroke="var(--ink)" stroke-width="4" fill="none"/><path d="M244 66l2 12 12-4" stroke="var(--ink)" stroke-width="4" fill="none"/>${t(36,186,"Prevent")}${t(136,186,"Detect")}${t(244,186,"Fix")}`,controlKinds:`${s(18,30,88,130,"var(--paper)")}${s(116,30,88,130,"var(--paper)")}${s(214,30,88,130,"var(--paper)")}${[40,54,68,82].map(r=>`<rect x="${r}" y="70" width="6" height="56" fill="var(--ink)"/>`).join("")}<rect x="36" y="80" width="56" height="5" fill="var(--ink)"/><rect x="134" y="66" width="52" height="38" rx="4" fill="var(--sky)" stroke="var(--ink)" stroke-width="2"/><rect x="150" y="104" width="20" height="10" fill="var(--ink)"/><rect x="234" y="58" width="48" height="66" rx="3" fill="var(--sun-soft)" stroke="var(--ink)" stroke-width="2"/>${[74,86,98,110].map(r=>`<rect x="242" y="${r}" width="32" height="4" rx="2" fill="var(--ink)" opacity=".6"/>`).join("")}${t(30,186,"Physical")}${t(128,186,"Technical")}${t(212,186,"Administrative","a-t a-small")}`,packet:`${o(30,60,"var(--sun-soft)")}${o(128,60,"var(--sun-soft)")}${o(226,60,"var(--sun-soft)")}${t(30,136,"From: 198.51.100.7","a-mono-s")}${t(30,156,"To: 10.0.1.10   Door: 443","a-mono-s")}<path d="M98 81h26m72 0h26" stroke="var(--ink)" stroke-width="2" stroke-dasharray="4 4"/>`,ports:`${[[24,"80","var(--leaf-soft)"],[84,"443","var(--leaf-soft)"],[144,"22","var(--coral-soft)"],[204,"3389","var(--coral-soft)"],[264,"445","var(--coral-soft)"]].map(([r,i,c])=>`<rect x="${r}" y="50" width="44" height="80" rx="22" fill="${c}" stroke="var(--ink)" stroke-width="2"/>${t(Number(r)+(String(i).length>3?4:String(i).length>2?9:14),98,String(i),"a-mono")}`).join("")}${t(24,166,"Open: 80, 443","a-t")}${t(178,166,"Shut: the rest","a-t")}`,firewall:`${o(20,70,"var(--sun-soft)")}<rect x="140" y="20" width="40" height="160" fill="var(--coral-soft)" stroke="var(--ink)" stroke-width="2"/>${[40,70,100,130,160].map(r=>`<path d="M140 ${r}h40" stroke="var(--ink)" stroke-width="1.5"/>`).join("")}<path d="M90 91h44" stroke="var(--ink)" stroke-width="2.5"/><path d="M128 85l8 6-8 6" fill="var(--ink)"/>${s(206,56,96,74,"var(--paper)")}${t(216,82,"Rules","a-t")}${t(216,104,"+ 80, 443","a-mono-s")}${t(216,120,"x the rest","a-mono-s")}`,order:`${[["1","Block bad IP","var(--coral-soft)"],["2","Allow 443","var(--leaf-soft)"],["3","Block everything","var(--coral-soft)"]].map(([r,i,c],u)=>`${s(60,22+u*54,200,42,c)}${t(76,49+u*54,`${r}.  ${i}`,"a-t")}`).join("")}<path d="M36 30v140" stroke="var(--teal)" stroke-width="3"/><path d="M28 162l8 12 8-12" fill="var(--teal)"/>${t(270,49,"first","a-t a-small")}`,ids:`<rect x="130" y="40" width="60" height="140" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M120 40l40-30 40 30z" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/><ellipse cx="160" cy="76" rx="18" ry="11" fill="var(--sky)" stroke="var(--ink)" stroke-width="2"/><circle cx="160" cy="76" r="5" fill="var(--ink)"/>${o(20,120,"var(--sun-soft)")}${o(236,120,"var(--sun-soft)")}<path d="M142 86L70 124M178 86l72 38" stroke="var(--sun)" stroke-width="3" stroke-dasharray="5 5"/>`,signature:`${s(24,26,128,150,"var(--paper)")}${t(44,54,"WANTED","a-mid")}${s(42,70,92,50,"var(--coral-soft)")}${t(52,101,"OR 1=1","a-mono")}${t(44,156,"Signature","a-t")}${s(168,26,128,150,"var(--paper)")}<path d="M184 140l18-14 18 6 18-20 18 4" stroke="var(--teal)" stroke-width="3" fill="none"/><path d="M256 116l16-72" stroke="var(--coral)" stroke-width="3"/><circle cx="272" cy="44" r="6" fill="var(--coral)"/>${t(188,168,"Anomaly","a-t")}`,ips:`${o(16,80,"var(--sun-soft)")}<path d="M84 101h40" stroke="var(--ink)" stroke-width="2.5"/>${s(130,50,70,100,"var(--teal)")}${t(146,108,"IPS","a-mid a-light")}<path d="M206 101h36" stroke="var(--ink)" stroke-width="2.5" stroke-dasharray="4 4"/><circle cx="270" cy="101" r="26" fill="var(--coral-soft)" stroke="var(--coral)" stroke-width="4"/><path d="M252 83l36 36" stroke="var(--coral)" stroke-width="5"/>${t(110,184,"Sits in the path. Can block.")}`,castle:`<rect x="10" y="150" width="300" height="24" rx="12" fill="var(--sky)"/>${t(18,168,"moat: training","a-t a-small")}<rect x="40" y="60" width="240" height="92" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>${[40,80,120,160,200,240].map(r=>`<rect x="${r}" y="48" width="20" height="14" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/>`).join("")}${t(50,84,"wall: firewall","a-t a-small")}<rect x="110" y="96" width="100" height="56" fill="var(--sun-soft)" stroke="var(--ink)" stroke-width="2"/>${t(118,116,"guards: IPS","a-t a-small")}<rect x="140" y="122" width="40" height="30" fill="var(--sun)" stroke="var(--ink)" stroke-width="2"/>${t(222,116,"vault: MFA","a-t a-small")}`};return T0("0 0 320 200",n[e],e)}var g0="byteville-defenders-v1",je=()=>({points:0,stars:{},best:{},badges:[],done:[],unlocked:1,streak:0,bestStreak:0,quick:0,answered:0,correct:0,playMs:0,nwSolved:[],nwUnlocked:1,nwHints:{},opSolved:[],opUnlocked:1,opHints:{}});function et(){try{let e=localStorage.getItem(g0);if(e){let t=JSON.parse(e);return{profile:t.profile||null,progress:Object.assign(je(),t.progress||{}),sound:t.sound!==!1}}}catch{}return{profile:null,progress:je(),sound:!0}}var R=et();function j(){try{localStorage.setItem(g0,JSON.stringify(R))}catch{}}function P0(){let e=Math.random().toString(36).slice(2,8);return`s-${Date.now().toString(36)}-${e}`}function L0(){R.progress=je(),j()}function Le(e){let t=0;return Pe.forEach((s,o)=>{e>=s[0]&&(t=o)}),{name:Pe[t][1],floor:Pe[t][0],next:t+1<Pe.length?Pe[t+1][0]:null}}function ne(e){let t=R.progress;if(t.badges.includes(e))return null;let s=fe.find(o=>o.id===e);return s?(t.badges.push(e),j(),s.name):null}function ze(){return Object.values(R.progress.stars).reduce((e,t)=>e+t,0)}var qe=()=>Y.length*3;function te(){return window.BYTEVILLE_CONFIG||{}}var Ve="byteville-queue-v1",Ye="byteville-log-v1";function Qe(e){try{return JSON.parse(localStorage.getItem(e)||"[]")}catch{return[]}}function Xe(e,t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}}var pe=Qe(Ve),Ke=!1;function Oe(e){let t=R.profile,s={timestamp:new Date().toISOString(),session_id:t?t.sessionId:"",student:t?t.name:"",class_code:t?t.classCode:"",chapter:"",item_id:"",prompt:"",choice:"",correct_answer:"",correct:"",time_ms:"",points:0,total_points:R.progress.points,...e},o=Qe(Ye);o.push(s),Xe(Ye,o.slice(-3e3)),te().trackingUrl&&(pe.push(s),Xe(Ve,pe),(pe.length>=8||e.event==="chapter_complete"||e.event==="finish")&&Te())}async function Te(){let e=te().trackingUrl;if(!e||Ke||pe.length===0)return;Ke=!0;let t=pe.slice(0,50);try{await fetch(e,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({key:te().classKey||"",events:t})}),pe=pe.slice(t.length),Xe(Ve,pe)}catch{}finally{Ke=!1}}setInterval(()=>{Te()},15e3);document.addEventListener("visibilitychange",()=>{document.visibilityState==="hidden"&&Te()});function ae(){return!!te().trackingUrl}async function O0(e){let t=te();if(!t.trackingUrl||t.showLeaderboard===!1||!e)return null;try{let s=await fetch(`${t.trackingUrl}?action=leaderboard&class=${encodeURIComponent(e)}`);return s.ok?(await s.json()).rows||[]:null}catch{return null}}function y0(){let e=["timestamp","session_id","student","class_code","event","chapter","item_id","prompt","choice","correct_answer","correct","time_ms","points","total_points"],t=s=>{let o=String(s!=null?s:"");return/[",\n]/.test(o)?'"'+o.replace(/"/g,'""')+'"':o};return[e.join(",")].concat(Qe(Ye).map(s=>e.map(o=>t(s[o])).join(","))).join(`
+`)}async function ye(e){let t=te().trackingUrl;if(!t)return null;let s=R.profile;try{let o=await fetch(t,{method:"POST",redirect:"follow",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({key:te().classKey||"",session_id:s?s.sessionId:"",student:s?s.name:"",class_code:s?s.classCode:"",...e})});return o.ok?await o.json():null}catch{return null}}var y=(e,t=document)=>t.querySelector(e);function f(e){return e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}var ke=null;function he(e,t,s="triangle",o=.05,n=0){if(R.sound)try{let r=window;ke=ke||new(window.AudioContext||r.webkitAudioContext);let i=ke.createOscillator(),c=ke.createGain(),u=ke.currentTime+n;i.type=s,i.frequency.value=e,c.gain.setValueAtTime(o,u),c.gain.exponentialRampToValueAtTime(1e-4,u+t),i.connect(c),c.connect(ke.destination),i.start(u),i.stop(u+t)}catch{}}var H={right:(e=0)=>{let t=520+Math.min(e,8)*40;he(t,.1),he(t*1.5,.12,"triangle",.045,.07)},wrong:()=>{he(220,.18,"sine",.06),he(165,.25,"sine",.05,.12)},click:()=>he(700,.04,"square",.02),badge:()=>[659,784,988,1319].forEach((e,t)=>he(e,.18,"triangle",.05,t*.1)),win:()=>[523,659,784,1046,1318].forEach((e,t)=>he(e,.2,"triangle",.055,t*.11)),gold:()=>[880,1175,1568].forEach((e,t)=>he(e,.12,"square",.03,t*.06))},De=[],He=!1;function ee(e,t="info"){t==="info"&&(He||De.length)||(De.push(`<div class="toast-in ${t}">${e}</div>`),He||k0())}function k0(){let e=y("#toast"),t=De.shift();if(!t){He=!1,e.hidden=!0;return}He=!0,e.innerHTML=t,e.hidden=!1,setTimeout(k0,De.length?1800:2600)}function ie(e,t){let s=y("#overlay"),o=y("#modal");o.innerHTML=e+'<div class="modal-actions"></div>';let n=y(".modal-actions",o);t.forEach((r,i)=>{let c=document.createElement("button");c.className="btn"+(r.primary?" btn-primary":""),c.textContent=r.label,c.addEventListener("click",()=>{s.hidden=!0,r.onClick()}),n.appendChild(c),i===0&&setTimeout(()=>c.focus(),30)}),s.hidden=!1}var Je=()=>!y("#overlay").hidden;function Ce(e,t,s=!1){let o=e.getBoundingClientRect(),n=document.createElement("div");n.className="float-pts"+(s?" gold":""),n.textContent=t,n.style.left=`${o.left+o.width/2}px`,n.style.top=`${o.top+window.scrollY}px`,document.body.appendChild(n),setTimeout(()=>n.remove(),1e3)}function we(){if(window.matchMedia("(prefers-reduced-motion: reduce)").matches)return;let e=["#F5A623","#17807E","#E8604C","#3C9D5D","#8A5BB8","#3B6FB6"];for(let t=0;t<70;t++){let s=document.createElement("i");s.className="confetti",s.style.left=Math.random()*100+"vw",s.style.background=e[t%e.length],s.style.animationDelay=Math.random()*.5+"s",s.style.transform=`rotate(${Math.random()*360}deg)`,document.body.appendChild(s),setTimeout(()=>s.remove(),2600)}}function C0(e,t,s="text/csv"){let o=new Blob([t],{type:s}),n=document.createElement("a");n.href=URL.createObjectURL(o),n.download=e,document.body.appendChild(n),n.click(),setTimeout(()=>{URL.revokeObjectURL(n.href),n.remove()},500)}var v0=e=>e[Math.floor(Math.random()*e.length)];function se(e,t,s){return`<div class="stage-head">
+    <div><div class="eyebrow">Challenge</div><h2>${f(e)}</h2><p class="stage-intro">${f(t)}</p></div>
+    <div class="stage-count" aria-live="polite">${s}</div></div>`}function ue(e,t,s,o,n,r,i=1500){if(e.className="feedback "+(t?"ok":"no"),e.innerHTML=`<div class="fb-title">${v0(t?u0:m0)}${t&&o?` <span class="fb-pts">+${o}</span>`:""}</div><p>${s}</p>`,e.hidden=!1,t&&n&&o&&Ce(n,`+${o}`),t){let c=setTimeout(r,i),u=document.createElement("button");u.className="btn btn-small",u.textContent="Next",u.addEventListener("click",()=>{clearTimeout(c),r()}),e.appendChild(u)}else{let c=document.createElement("button");c.className="btn btn-primary btn-small",c.textContent="Got it, next",c.addEventListener("click",r),e.appendChild(c),setTimeout(()=>c.focus(),30)}}function A0(e,t,s){let o=t.cards.slice().sort(()=>Math.random()-.5),n=0,r=0,i=!1,c=()=>{if(n>=o.length)return s.done();let O=o[n];i=!1,e.innerHTML=se(t.title,t.intro,`${n+1} / ${o.length}`)+`
+      <div class="sort-card" tabindex="-1">${f(O.text)}</div>
+      <div class="bins">${t.bins.map((T,v)=>`<button class="bin" data-i="${v}"><span class="bin-key">${v+1}</span><b>${f(T.label)}</b><small>${f(T.hint)}</small></button>`).join("")}</div>
+      <div class="feedback" hidden></div>`,r=performance.now(),e.querySelectorAll(".bin").forEach(T=>T.addEventListener("click",()=>u(Number(T.dataset.i),T)))},u=(O,T)=>{if(i)return;i=!0;let v=o[n],N=O===v.bin;e.querySelectorAll(".bin").forEach((S,D)=>{S.disabled=!0,D===v.bin?S.classList.add("is-right"):D===O&&S.classList.add("is-wrong")});let A=s.answer({itemId:v.id,prompt:v.text,choice:t.bins[O].label,correctAnswer:t.bins[v.bin].label,correct:N,timeMs:performance.now()-r});N?H.right():H.wrong(),ue(e.querySelector(".feedback"),N,v.explain,A,T,()=>{n++,c()})},w=O=>{if(!document.body.contains(e)||!e.querySelector(".bins")){document.removeEventListener("keydown",w);return}let T=Number(O.key);if(T>=1&&T<=t.bins.length&&!i){let v=e.querySelector(`.bin[data-i="${T-1}"]`);u(T-1,v)}};document.addEventListener("keydown",w),c()}function Ze(e,t,s,o,n){let r=performance.now(),i=!1;e.innerHTML=`<p class="q-prompt">${f(t.prompt)}</p>
+    <div class="${s==="pair"?"pair":"opts"}">${t.options.map((u,w)=>`<button class="${s==="pair"?"pair-card":"opt"}" data-i="${w}">${s==="pair"?`<span class="pair-tag">${w===0?"Left":"Right"}</span><span class="pair-text">${f(u)}</span>`:`<span class="opt-key">${String.fromCharCode(65+w)}</span>${f(u)}`}</button>`).join("")}</div>
+    <div class="feedback" hidden></div>`;let c=Array.from(e.querySelectorAll("[data-i]"));c.forEach(u=>u.addEventListener("click",()=>{if(i)return;i=!0;let w=Number(u.dataset.i),O=w===t.answer;c.forEach((v,N)=>{v.disabled=!0,N===t.answer?v.classList.add("is-right"):N===w&&v.classList.add("is-wrong")}),O?H.right():H.wrong();let T=o(w,O,performance.now()-r);ue(e.querySelector(".feedback"),O,t.explain,T,u,n,1800)}))}function S0(e,t,s){let o=0,n=()=>{if(o>=t.items.length)return s.done();let r=t.items[o];e.innerHTML=se(t.title,t.intro,`${o+1} / ${t.items.length}`)+'<div class="q-box"></div>',Ze(e.querySelector(".q-box"),r,t.style||"list",(i,c,u)=>s.answer({itemId:r.id,prompt:r.prompt,choice:r.options[i],correctAnswer:r.options[r.answer],correct:c,timeMs:u}),()=>{o++,n()})};n()}function W0(e,t,s){let o={},n=0,r=performance.now(),i=()=>t.emails.filter(w=>o[w.id]===void 0).length,c=()=>{let w=t.emails[n],O=o[w.id]!==void 0;e.innerHTML=se(t.title,t.intro,`${t.emails.length-i()} / ${t.emails.length} checked`)+`
     <div class="inbox">
-      <ul class="mail-list" role="list">${st.emails.map((e, i) => {
-        const r = result[e.id];
-        const tag = r === void 0 ? '<span class="mail-tag new">New</span>' : r ? '<span class="mail-tag ok">Done</span>' : '<span class="mail-tag no">Missed</span>';
-        return `<li><button class="mail-item${i === current ? " on" : ""}" data-i="${i}"><span class="mail-from">${esc(e.from)}${e.kind === "text" ? " <small>(text)</small>" : ""}</span>${tag}<span class="mail-sub">${esc(e.subject)}</span></button></li>`;
-      }).join("")}</ul>
+      <ul class="mail-list" role="list">${t.emails.map((T,v)=>{let N=o[T.id],A=N===void 0?'<span class="mail-tag new">New</span>':N?'<span class="mail-tag ok">Done</span>':'<span class="mail-tag no">Missed</span>';return`<li><button class="mail-item${v===n?" on":""}" data-i="${v}"><span class="mail-from">${f(T.from)}${T.kind==="text"?" <small>(text)</small>":""}</span>${A}<span class="mail-sub">${f(T.subject)}</span></button></li>`}).join("")}</ul>
       <article class="mail-read">
-        <div class="mail-meta"><div class="mail-avatar">${esc(m.from.charAt(0))}</div>
-          <div><b>${esc(m.from)}</b><div class="mono small">${esc(m.address)}</div></div></div>
-        <h3>${esc(m.subject)}</h3>
-        <p>${esc(m.body)}</p>
-        ${m.link ? `<p class="fake-link">${esc(m.link)}</p>` : ""}
-        ${answered ? `<div class="clues"><b>${m.phish ? "Phish! Clues:" : "Safe. Why:"}</b><ul>${m.clues.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>` : `
+        <div class="mail-meta"><div class="mail-avatar">${f(w.from.charAt(0))}</div>
+          <div><b>${f(w.from)}</b><div class="mono small">${f(w.address)}</div></div></div>
+        <h3>${f(w.subject)}</h3>
+        <p>${f(w.body)}</p>
+        ${w.link?`<p class="fake-link">${f(w.link)}</p>`:""}
+        ${O?`<div class="clues"><b>${w.phish?"Phish! Clues:":"Safe. Why:"}</b><ul>${w.clues.map(T=>`<li>${f(T)}</li>`).join("")}</ul></div>`:`
         <div class="mail-actions"><button class="btn btn-safe" data-a="safe">Safe</button><button class="btn btn-phish" data-a="phish">Phish</button></div>`}
         <div class="feedback" hidden></div>
       </article>
-    </div>`;
-      root.querySelectorAll(".mail-item").forEach((b) => b.addEventListener("click", () => {
-        current = Number(b.dataset.i);
-        t0 = performance.now();
-        draw();
-      }));
-      root.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => decide(b.dataset.a === "phish", b)));
-    };
-    const decide = (saysPhish, btn) => {
-      const m = st.emails[current];
-      if (result[m.id] !== void 0) return;
-      const ok = saysPhish === m.phish;
-      result[m.id] = ok;
-      ok ? sfx.right() : sfx.wrong();
-      const pts = ctx.answer({ itemId: m.id, prompt: `${m.from}: ${m.subject}`, choice: saysPhish ? "Phish" : "Safe", correctAnswer: m.phish ? "Phish" : "Safe", correct: ok, timeMs: performance.now() - t0 });
-      draw();
-      const fb = root.querySelector(".feedback");
-      const msg = m.phish ? `This one is a phish. Look at the clues above.` : `This one is safe. Look at why above.`;
-      feedback(fb, ok, msg, pts, root.querySelector(".mail-read h3") || btn, () => {
-        if (left() === 0) return ctx.done();
-        const nextIdx = st.emails.findIndex((e) => result[e.id] === void 0);
-        current = nextIdx;
-        t0 = performance.now();
-        draw();
-      }, 2600);
-    };
-    draw();
-  }
-
-  // src/stages/lane.ts
-  function runLane(root, st, ctx) {
-    const packets = st.packets();
-    let k = 0;
-    let raf = 0;
-    let t0 = 0;
-    let busy = true;
-    let el = null;
-    let paused = false;
-    const icon = (kind) => kind === "allow" ? "ALLOW" : kind === "alert" ? "CHECK" : "BLOCK";
-    root.innerHTML = stageHead(st.title, st.intro, `1 / ${packets.length}`) + `
+    </div>`,e.querySelectorAll(".mail-item").forEach(T=>T.addEventListener("click",()=>{n=Number(T.dataset.i),r=performance.now(),c()})),e.querySelectorAll("[data-a]").forEach(T=>T.addEventListener("click",()=>u(T.dataset.a==="phish",T)))},u=(w,O)=>{let T=t.emails[n];if(o[T.id]!==void 0)return;let v=w===T.phish;o[T.id]=v,v?H.right():H.wrong();let N=s.answer({itemId:T.id,prompt:`${T.from}: ${T.subject}`,choice:w?"Phish":"Safe",correctAnswer:T.phish?"Phish":"Safe",correct:v,timeMs:performance.now()-r});c();let A=e.querySelector(".feedback"),S=T.phish?"This one is a phish. Look at the clues above.":"This one is safe. Look at why above.";ue(A,v,S,N,e.querySelector(".mail-read h3")||O,()=>{if(i()===0)return s.done();n=t.emails.findIndex(B=>o[B.id]===void 0),r=performance.now(),c()},2600)};c()}function $0(e,t,s){let o=t.packets(),n=0,r=0,i=0,c=!0,u=null,w=!1,O=b=>b==="allow"?"ALLOW":b==="alert"?"CHECK":"BLOCK";e.innerHTML=se(t.title,t.intro,`1 / ${o.length}`)+`
   <div class="lane-grid">
     <div class="lane-main">
       <div class="lane" aria-live="polite">
-        <span class="lane-label l">${esc(st.left)}</span><span class="lane-label r">${esc(st.right)}</span>
-        <div class="wall"><span>${esc(st.wall)}</span></div>
+        <span class="lane-label l">${f(t.left)}</span><span class="lane-label r">${f(t.right)}</span>
+        <div class="wall"><span>${f(t.wall)}</span></div>
         <div class="school" aria-hidden="true"><i></i><i></i><i></i></div>
         <div class="timer"><i></i></div>
       </div>
       <div class="lane-actions">
-        <button class="act act-yes" data-a="1">${esc(st.yes)}<small>key A</small></button>
-        <button class="act act-no" data-a="0">${esc(st.no)}<small>key B</small></button>
+        <button class="act act-yes" data-a="1">${f(t.yes)}<small>key A</small></button>
+        <button class="act act-no" data-a="0">${f(t.no)}<small>key B</small></button>
       </div>
       <div class="lane-note" aria-live="polite">Read the packet, check the rules, then decide.</div>
     </div>
     <aside class="rulebook">
       <h3>Your rules</h3>
-      <ol>${st.rules.map((r) => `<li><span class="rk ${r.kind}">${icon(r.kind)}</span>${esc(r.text)}</li>`).join("")}</ol>
-      ${(st.chips || []).map((c2) => `<div class="chips"><b>${esc(c2.label)}</b>${c2.values.map((v) => `<span class="chip">${esc(v)}</span>`).join("")}</div>`).join("")}
+      <ol>${t.rules.map(b=>`<li><span class="rk ${b.kind}">${O(b.kind)}</span>${f(b.text)}</li>`).join("")}</ol>
+      ${(t.chips||[]).map(b=>`<div class="chips"><b>${f(b.label)}</b>${b.values.map(l=>`<span class="chip">${f(l)}</span>`).join("")}</div>`).join("")}
       <p class="small muted">Checked from top to bottom. First match wins.</p>
     </aside>
-  </div>`;
-    const lane = root.querySelector(".lane");
-    const timer = root.querySelector(".timer i");
-    const note = root.querySelector(".lane-note");
-    const count = root.querySelector(".stage-count");
-    const buttons = Array.from(root.querySelectorAll(".act"));
-    const next = () => {
-      if (!document.body.contains(lane)) return cleanup();
-      if (k >= packets.length) {
-        cleanup();
-        return ctx.done();
-      }
-      const p = packets[k];
-      count.textContent = `${k + 1} / ${packets.length}`;
-      el = document.createElement("div");
-      el.className = "pkt" + (p.golden ? " golden" : "");
-      el.innerHTML = `${p.golden ? '<span class="gold-tag">GOLD x3</span>' : ""}
-      <div class="pk-row"><span>FROM</span><b>${esc(p.from)}</b> <em>${esc(p.who)}</em></div>
-      <div class="pk-row"><span>PORT</span><b>${p.port}</b> <em>${esc(PORT_NAMES[p.port] || "")}</em></div>
-      ${p.msg ? `<div class="pk-msg">${esc(p.msg)}</div>` : ""}`;
-      lane.appendChild(el);
-      busy = false;
-      buttons.forEach((b) => b.disabled = false);
-      t0 = performance.now();
-      raf = requestAnimationFrame(tick);
-    };
-    const tick = (now) => {
-      if (busy || !el) return;
-      if (!document.body.contains(lane)) return cleanup();
-      if (paused || modalOpen()) {
-        t0 += 16;
-        raf = requestAnimationFrame(tick);
-        return;
-      }
-      const f = Math.min(1, (now - t0) / (st.seconds * 1e3));
-      const wall = root.querySelector(".wall").offsetLeft;
-      const max = Math.max(8, wall - el.offsetWidth - 10);
-      el.style.left = `${8 + (max - 8) * f}px`;
-      timer.style.width = `${(1 - f) * 100}%`;
-      timer.classList.toggle("low", f > 0.7);
-      if (f >= 1) {
-        decide(null);
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    const decide = (yes) => {
-      if (busy || !el) return;
-      busy = true;
-      cancelAnimationFrame(raf);
-      buttons.forEach((b) => b.disabled = true);
-      const p = packets[k];
-      const ms = performance.now() - t0;
-      const ok = yes === p.allow;
-      const speed = ok ? Math.max(0, Math.round(15 * (1 - ms / (st.seconds * 1e3)))) : 0;
-      const gold = ok && p.golden ? 30 : 0;
-      const pts = ctx.answer({
-        itemId: `${ctx.chapter.id}-lane-${p.cat}`,
-        prompt: `${p.from} port ${p.port}${p.msg ? " msg: " + p.msg : ""}`,
-        choice: yes === null ? "too slow" : yes ? st.yes : st.no,
-        correctAnswer: p.allow ? st.yes : st.no,
-        correct: ok,
-        timeMs: ms,
-        bonus: speed + gold
-      });
-      if (ok && ms < 4e3) {
-        store.progress.quick++;
-        persist();
-        if (store.progress.quick >= 5) {
-          const b = award("quick");
-          if (b) toast(`Badge unlocked: <b>${b}</b>`, "badge");
-        }
-      }
-      if (gold) {
-        sfx.gold();
-        const b = award("golden");
-        if (b) toast(`Badge unlocked: <b>${b}</b>`, "badge");
-      } else if (ok) sfx.right(store.progress.streak);
-      else sfx.wrong();
-      const cur = el;
-      cur.classList.add(p.allow ? "go" : "stop");
-      if (ok) {
-        floatPoints(cur, `+${pts}`, !!gold);
-        note.className = "lane-note ok";
-        note.innerHTML = `<b>Right: ${p.allow ? st.yes : st.no}.</b> ${esc(p.why)}`;
-        setTimeout(() => {
-          cur.remove();
-          k++;
-          next();
-        }, 700);
-      } else {
-        note.className = "lane-note no";
-        note.innerHTML = `<b>The answer was ${p.allow ? st.yes : st.no}.</b> ${esc(p.why)}`;
-        modal(
-          `<h3>${yes === null ? "Too slow! Decide before the timer runs out." : "Not quite."}</h3><p>The answer was <b>${p.allow ? st.yes : st.no}</b>.</p><p>${esc(p.why)}</p>`,
-          [{ label: "Got it", primary: true, onClick: () => {
-            cur.remove();
-            k++;
-            next();
-          } }]
-        );
-      }
-    };
-    buttons.forEach((b) => b.addEventListener("click", () => decide(b.dataset.a === "1")));
-    const onKey = (e) => {
-      if (!document.body.contains(lane)) return cleanup();
-      if (modalOpen()) return;
-      const key = e.key.toLowerCase();
-      if (key === "a" || key === "arrowleft") {
-        e.preventDefault();
-        decide(true);
-      }
-      if (key === "b" || key === "arrowright") {
-        e.preventDefault();
-        decide(false);
-      }
-    };
-    const onVis = () => {
-      paused = document.visibilityState === "hidden";
-    };
-    function cleanup() {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("visibilitychange", onVis);
-    }
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("visibilitychange", onVis);
-    let c = 3;
-    const cd = document.createElement("div");
-    cd.className = "countdown";
-    lane.appendChild(cd);
-    const step = () => {
-      if (!document.body.contains(lane)) return cleanup();
-      if (c === 0) {
-        cd.remove();
-        next();
-        return;
-      }
-      cd.textContent = String(c);
-      c--;
-      setTimeout(step, 700);
-    };
-    step();
-  }
-
-  // src/stages/order.ts
-  var matches = (r, t) => (r.port === void 0 || r.port === t.port) && (r.ip === void 0 || r.ip === t.ip);
-  function verdict(rules, t) {
-    for (let i = 0; i < rules.length; i++) if (matches(rules[i], t)) return { allow: rules[i].action === "allow", by: i };
-    return { allow: false, by: -1 };
-  }
-  function runOrder(root, st, ctx) {
-    let p = 0;
-    const drawPuzzle = (pz) => {
-      const rules = pz.rules.slice();
-      let tries = 0;
-      let solved = false;
-      let t0 = performance.now();
-      const draw = (results) => {
-        root.innerHTML = stageHead(st.title, st.intro, `Puzzle ${p + 1} / ${st.puzzles.length}`) + `
+  </div>`;let T=e.querySelector(".lane"),v=e.querySelector(".timer i"),N=e.querySelector(".lane-note"),A=e.querySelector(".stage-count"),S=Array.from(e.querySelectorAll(".act")),D=()=>{if(!document.body.contains(T))return I();if(n>=o.length)return I(),s.done();let b=o[n];A.textContent=`${n+1} / ${o.length}`,u=document.createElement("div"),u.className="pkt"+(b.golden?" golden":""),u.innerHTML=`${b.golden?'<span class="gold-tag">GOLD x3</span>':""}
+      <div class="pk-row"><span>FROM</span><b>${f(b.from)}</b> <em>${f(b.who)}</em></div>
+      <div class="pk-row"><span>PORT</span><b>${b.port}</b> <em>${f(c0[b.port]||"")}</em></div>
+      ${b.msg?`<div class="pk-msg">${f(b.msg)}</div>`:""}`,T.appendChild(u),c=!1,S.forEach(l=>l.disabled=!1),i=performance.now(),r=requestAnimationFrame(B)},B=b=>{if(c||!u)return;if(!document.body.contains(T))return I();if(w||Je()){i+=16,r=requestAnimationFrame(B);return}let l=Math.min(1,(b-i)/(t.seconds*1e3)),d=e.querySelector(".wall").offsetLeft,a=Math.max(8,d-u.offsetWidth-10);if(u.style.left=`${8+(a-8)*l}px`,v.style.width=`${(1-l)*100}%`,v.classList.toggle("low",l>.7),l>=1){q(null);return}r=requestAnimationFrame(B)},q=b=>{if(c||!u)return;c=!0,cancelAnimationFrame(r),S.forEach(p=>p.disabled=!0);let l=o[n],d=performance.now()-i,a=b===l.allow,g=a?Math.max(0,Math.round(15*(1-d/(t.seconds*1e3)))):0,h=a&&l.golden?30:0,P=s.answer({itemId:`${s.chapter.id}-lane-${l.cat}`,prompt:`${l.from} port ${l.port}${l.msg?" msg: "+l.msg:""}`,choice:b===null?"too slow":b?t.yes:t.no,correctAnswer:l.allow?t.yes:t.no,correct:a,timeMs:d,bonus:g+h});if(a&&d<4e3&&(R.progress.quick++,j(),R.progress.quick>=5)){let p=ne("quick");p&&ee(`Badge unlocked: <b>${p}</b>`,"badge")}if(h){H.gold();let p=ne("golden");p&&ee(`Badge unlocked: <b>${p}</b>`,"badge")}else a?H.right(R.progress.streak):H.wrong();let m=u;m.classList.add(l.allow?"go":"stop"),a?(Ce(m,`+${P}`,!!h),N.className="lane-note ok",N.innerHTML=`<b>Right: ${l.allow?t.yes:t.no}.</b> ${f(l.why)}`,setTimeout(()=>{m.remove(),n++,D()},700)):(N.className="lane-note no",N.innerHTML=`<b>The answer was ${l.allow?t.yes:t.no}.</b> ${f(l.why)}`,ie(`<h3>${b===null?"Too slow! Decide before the timer runs out.":"Not quite."}</h3><p>The answer was <b>${l.allow?t.yes:t.no}</b>.</p><p>${f(l.why)}</p>`,[{label:"Got it",primary:!0,onClick:()=>{m.remove(),n++,D()}}]))};S.forEach(b=>b.addEventListener("click",()=>q(b.dataset.a==="1")));let _=b=>{if(!document.body.contains(T))return I();if(Je())return;let l=b.key.toLowerCase();(l==="a"||l==="arrowleft")&&(b.preventDefault(),q(!0)),(l==="b"||l==="arrowright")&&(b.preventDefault(),q(!1))},x=()=>{w=document.visibilityState==="hidden"};function I(){cancelAnimationFrame(r),document.removeEventListener("keydown",_),document.removeEventListener("visibilitychange",x)}document.addEventListener("keydown",_),document.addEventListener("visibilitychange",x);let F=3,L=document.createElement("div");L.className="countdown",T.appendChild(L);let M=()=>{if(!document.body.contains(T))return I();if(F===0){L.remove(),D();return}L.textContent=String(F),F--,setTimeout(M,700)};M()}var tt=(e,t)=>(e.port===void 0||e.port===t.port)&&(e.ip===void 0||e.ip===t.ip);function st(e,t){for(let s=0;s<e.length;s++)if(tt(e[s],t))return{allow:e[s].action==="allow",by:s};return{allow:!1,by:-1}}function x0(e,t,s){let o=0,n=r=>{let i=r.rules.slice(),c=0,u=!1,w=performance.now(),O=v=>{e.innerHTML=se(t.title,t.intro,`Puzzle ${o+1} / ${t.puzzles.length}`)+`
       <div class="order-grid">
         <div>
-          <div class="goal"><b>Goal:</b> ${esc(pz.goal)}</div>
-          <ol class="rule-list">${rules.map((r, i) => `<li class="rule-row ${r.action}">
-            <span class="rule-num">${i + 1}</span><span class="rule-act">${r.action === "allow" ? "ALLOW" : "BLOCK"}</span><span class="rule-text">${esc(r.text.replace(/^(Allow|Block) /, ""))}</span>
-            <span class="rule-move"><button class="mv" data-i="${i}" data-d="-1" aria-label="Move rule ${i + 1} up" ${i === 0 ? "disabled" : ""}>&uarr;</button><button class="mv" data-i="${i}" data-d="1" aria-label="Move rule ${i + 1} down" ${i === rules.length - 1 ? "disabled" : ""}>&darr;</button></span></li>`).join("")}</ol>
-          <div class="row-gap"><button class="btn btn-primary" id="runTest">Test my rules</button>${tries > 0 ? '<button class="btn" id="hintBtn">Show a hint</button>' : ""}</div>
-          <div class="hint" hidden>${esc(pz.hint)}</div>
+          <div class="goal"><b>Goal:</b> ${f(r.goal)}</div>
+          <ol class="rule-list">${i.map((A,S)=>`<li class="rule-row ${A.action}">
+            <span class="rule-num">${S+1}</span><span class="rule-act">${A.action==="allow"?"ALLOW":"BLOCK"}</span><span class="rule-text">${f(A.text.replace(/^(Allow|Block) /,""))}</span>
+            <span class="rule-move"><button class="mv" data-i="${S}" data-d="-1" aria-label="Move rule ${S+1} up" ${S===0?"disabled":""}>&uarr;</button><button class="mv" data-i="${S}" data-d="1" aria-label="Move rule ${S+1} down" ${S===i.length-1?"disabled":""}>&darr;</button></span></li>`).join("")}</ol>
+          <div class="row-gap"><button class="btn btn-primary" id="runTest">Test my rules</button>${c>0?'<button class="btn" id="hintBtn">Show a hint</button>':""}</div>
+          <div class="hint" hidden>${f(r.hint)}</div>
         </div>
-        <div class="tests"><h3>Test packets</h3>${pz.tests.map((t, i) => {
-          const r = results ? results[i] : null;
-          const pass = r ? r.allow === t.allow : null;
-          return `<div class="test ${pass === null ? "" : pass ? "pass" : "fail"}"><div><b>${esc(t.label)}</b><div class="mono small">${esc(t.ip)} : ${t.port}</div></div>
-            <div class="test-want">Should be <b>${t.allow ? "allowed" : "blocked"}</b>${r ? `<br><span class="small">Got ${r.allow ? "allowed" : "blocked"}${r.by >= 0 ? ` by rule ${r.by + 1}` : ""}</span>` : ""}</div></div>`;
-        }).join("")}</div>
+        <div class="tests"><h3>Test packets</h3>${r.tests.map((A,S)=>{let D=v?v[S]:null,B=D?D.allow===A.allow:null;return`<div class="test ${B===null?"":B?"pass":"fail"}"><div><b>${f(A.label)}</b><div class="mono small">${f(A.ip)} : ${A.port}</div></div>
+            <div class="test-want">Should be <b>${A.allow?"allowed":"blocked"}</b>${D?`<br><span class="small">Got ${D.allow?"allowed":"blocked"}${D.by>=0?` by rule ${D.by+1}`:""}</span>`:""}</div></div>`}).join("")}</div>
       </div>
-      <div class="feedback" hidden></div>`;
-        root.querySelectorAll(".mv").forEach((b) => b.addEventListener("click", () => {
-          var _a;
-          const i = Number(b.dataset.i), d = Number(b.dataset.d);
-          [rules[i], rules[i + d]] = [rules[i + d], rules[i]];
-          sfx.click();
-          draw();
-          (_a = root.querySelector(`.mv[data-i="${i + d}"][data-d="${d}"]`)) == null ? void 0 : _a.focus();
-        }));
-        root.querySelector("#runTest").addEventListener("click", test);
-        const hb = root.querySelector("#hintBtn");
-        if (hb) hb.addEventListener("click", () => {
-          root.querySelector(".hint").hidden = false;
-        });
-      };
-      const test = () => {
-        if (solved) return;
-        tries++;
-        const res = pz.tests.map((t) => verdict(rules, t));
-        const ok = res.every((r, i) => r.allow === pz.tests[i].allow);
-        draw(res);
-        const base = ok ? Math.max(10, 50 - (tries - 1) * 15) : 0;
-        const pts = ctx.answer({
-          itemId: `${pz.id}-try${tries}`,
-          prompt: pz.goal,
-          choice: rules.map((r) => r.text).join(" > "),
-          correctAnswer: "all tests pass",
-          correct: ok,
-          timeMs: performance.now() - t0,
-          base
-        });
-        t0 = performance.now();
-        const fb = root.querySelector(".feedback");
-        if (ok) {
-          solved = true;
-          root.querySelectorAll(".mv, #runTest, #hintBtn").forEach((b) => b.disabled = true);
-          sfx.right();
-          floatPoints(root.querySelector("#runTest"), `+${pts}`);
-          feedback(fb, true, tries === 1 ? "First try! Every test packet went where it should." : "All test packets went where they should.", pts, null, () => {
-            p++;
-            p < st.puzzles.length ? drawPuzzle(st.puzzles[p]) : ctx.done();
-          }, 2200);
-        } else {
-          sfx.wrong();
-          fb.className = "feedback no";
-          fb.hidden = false;
-          fb.innerHTML = `<div class="fb-title">Some packets went the wrong way.</div><p>Look at the red tests. Which rule caught them? Move rules and test again.${tries >= 1 ? " You can also open a hint." : ""}</p>`;
-        }
-      };
-      draw();
-    };
-    drawPuzzle(st.puzzles[0]);
-  }
-
-  // src/nightwatch/engine.ts
-  var HOME_NET = "10.0.1.0/24";
-  function ipToInt(ip) {
-    const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (!m) return null;
-    const parts = m.slice(1).map(Number);
-    if (parts.some((p) => p > 255)) return null;
-    return (parts[0] << 24 >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
-  }
-  function validAddr(spec) {
-    if (spec === "any" || spec === "$home_net") return true;
-    const [ip, bits] = spec.split("/");
-    if (ipToInt(ip) === null) return false;
-    if (bits === void 0) return true;
-    const b = Number(bits);
-    return /^\d+$/.test(bits) && b >= 0 && b <= 32;
-  }
-  function addrMatches(spec, ip) {
-    if (spec === "any") return true;
-    if (spec === "$home_net") spec = HOME_NET;
-    const [base, bits] = spec.split("/");
-    const a = ipToInt(base), b = ipToInt(ip);
-    if (a === null || b === null) return false;
-    if (bits === void 0) return a === b;
-    const n2 = Number(bits);
-    if (n2 === 0) return true;
-    const mask = 4294967295 << 32 - n2 >>> 0;
-    return (a & mask) >>> 0 === (b & mask) >>> 0;
-  }
-  function parsePorts(tok) {
-    if (tok === "any") return "any";
-    const list = tok.split(",").map((s) => s.trim());
-    if (list.some((s) => !/^\d+$/.test(s) || Number(s) > 65535)) return null;
-    return list.map(Number);
-  }
-  var ACTIONS = { allow: "allow", accept: "allow", pass: "allow", block: "block", deny: "block", drop: "block" };
-  function parseFirewall(src) {
-    const rules = [];
-    const errors = [];
-    src.split("\n").forEach((raw, i) => {
-      const text = raw.replace(/#.*$/, "").trim();
-      if (!text) return;
-      const t = text.toLowerCase().split(/\s+/);
-      const where = `Line ${i + 1}`;
-      if (t.length < 6 || t.length > 7) {
-        errors.push(`${where}: expected 6 parts, like  allow tcp any -> 10.0.1.10 443`);
-        return;
-      }
-      const [act, proto, s, arrow, d, port, extra] = t;
-      if (!ACTIONS[act]) {
-        errors.push(`${where}: start with allow or block, not "${act}".`);
-        return;
-      }
-      if (!["tcp", "udp", "icmp", "any"].includes(proto)) {
-        errors.push(`${where}: protocol must be tcp, udp, icmp, or any.`);
-        return;
-      }
-      if (arrow !== "->") {
-        errors.push(`${where}: put  ->  between the source and the destination.`);
-        return;
-      }
-      if (!validAddr(s)) {
-        errors.push(`${where}: "${s}" is not a valid source. Use any, an IP, or a block like 10.0.2.0/24.`);
-        return;
-      }
-      if (!validAddr(d)) {
-        errors.push(`${where}: "${d}" is not a valid destination.`);
-        return;
-      }
-      const ports = parsePorts(port);
-      if (ports === null) {
-        errors.push(`${where}: "${port}" is not a valid port. Use any, 443, or 80,443.`);
-        return;
-      }
-      if (extra !== void 0 && extra !== "established") {
-        errors.push(`${where}: the only word allowed at the end is "established".`);
-        return;
-      }
-      rules.push({ line: i + 1, text, action: ACTIONS[act], proto, src: s, dst: d, ports, established: extra === "established" });
-    });
-    return { rules, errors };
-  }
-  function fwMatch(r, p) {
-    if (r.proto !== "any" && r.proto !== p.proto) return false;
-    if (!addrMatches(r.src, p.src) || !addrMatches(r.dst, p.dst)) return false;
-    if (r.ports !== "any") {
-      if (p.proto === "icmp" || !r.ports.includes(p.port)) return false;
-    }
-    if (r.established && p.state !== "est") return false;
-    return true;
-  }
-  function fwDecide(rules, p) {
-    for (let i = 0; i < rules.length; i++) if (fwMatch(rules[i], p)) return { got: rules[i].action, by: i };
-    return { got: "allow", by: -1 };
-  }
-  function parseIds(src) {
-    const rules = [];
-    const errors = [];
-    src.split("\n").forEach((raw, i) => {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) return;
-      const where = `Line ${i + 1}`;
-      const m = line.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*\((.*)\)\s*$/);
-      if (!m) {
-        errors.push(`${where}: expected  alert tcp any any -> $HOME_NET 80 (content:"..."; )`);
-        return;
-      }
-      const [, act, proto, s, sp, arrow, d, dp, opts] = m;
-      if (act.toLowerCase() !== "alert") {
-        errors.push(`${where}: detection rules start with alert.`);
-        return;
-      }
-      const pr = proto.toLowerCase();
-      if (!["tcp", "udp", "icmp", "ip"].includes(pr)) {
-        errors.push(`${where}: protocol must be tcp, udp, icmp, or ip.`);
-        return;
-      }
-      if (arrow !== "->") {
-        errors.push(`${where}: put  ->  between source and destination.`);
-        return;
-      }
-      if (!validAddr(s.toLowerCase()) || !validAddr(d.toLowerCase())) {
-        errors.push(`${where}: check the addresses. Use any, an IP, a block like 10.0.1.0/24, or $HOME_NET.`);
-        return;
-      }
-      const sport = parsePorts(sp.toLowerCase()), dport = parsePorts(dp.toLowerCase());
-      if (sport === null || dport === null) {
-        errors.push(`${where}: ports must be any, a number, or a list like 80,443.`);
-        return;
-      }
-      const contents = [];
-      let msg = "";
-      const re = /\s*([a-z_]+)\s*(?::\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*)))?\s*;/gi;
-      const body = opts.trim().endsWith(";") ? opts : opts + ";";
-      let k;
-      let consumed = 0;
-      while (k = re.exec(body)) {
-        consumed += k[0].length;
-        const key = k[1].toLowerCase();
-        if (key === "content") {
-          if (k[2] === void 0) {
-            errors.push(`${where}: content needs quotes, like content:"OR 1=1";`);
-            return;
-          }
-          contents.push({ text: k[2].replace(/\\(.)/g, "$1"), nocase: false });
-        } else if (key === "nocase") {
-          if (!contents.length) {
-            errors.push(`${where}: nocase must come after a content.`);
-            return;
-          }
-          contents[contents.length - 1].nocase = true;
-        } else if (key === "msg") {
-          msg = k[2] || "";
-        } else if (key === "sid" || key === "rev" || key === "classtype") {
-        } else {
-          errors.push(`${where}: Night Watch understands content, nocase, msg, sid and rev. "${key}" is not one of them.`);
-          return;
-        }
-      }
-      if (body.slice(consumed).trim()) {
-        errors.push(`${where}: check the options. Each one ends with a semicolon.`);
-        return;
-      }
-      if (!contents.length) {
-        errors.push(`${where}: add at least one content:"..."; so the rule knows what to look for.`);
-        return;
-      }
-      rules.push({ line: i + 1, proto: pr, src: s.toLowerCase(), sport, dst: d.toLowerCase(), dport, contents, msg });
-    });
-    return { rules, errors };
-  }
-  function idsFires(r, e) {
-    if (r.proto !== "ip" && r.proto !== e.proto) return false;
-    if (!addrMatches(r.src, e.src) || !addrMatches(r.dst, e.dst)) return false;
-    if (r.dport !== "any" && !r.dport.includes(e.port)) return false;
-    return r.contents.every((c) => c.nocase ? e.payload.toLowerCase().includes(c.text.toLowerCase()) : e.payload.includes(c.text));
-  }
-  function idsDecide(rules, e) {
-    for (let i = 0; i < rules.length; i++) if (idsFires(rules[i], e)) return { got: "alert", by: i };
-    return { got: "quiet", by: -1 };
-  }
-  function rng(seed) {
-    let a = seed >>> 0;
-    return () => {
-      a = a + 1831565813 >>> 0;
-      let t = a;
-      t = Math.imul(t ^ t >>> 15, t | 1);
-      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-      return ((t ^ t >>> 14) >>> 0) / 4294967296;
-    };
-  }
-  function clock(startSec) {
-    const s = (startSec % 86400 + 86400) % 86400;
-    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
-    return [h, m, x].map((v) => String(v).padStart(2, "0")).join(":");
-  }
-
-  // src/nightwatch/levels.ts
-  var NETWORK = [
-    ["10.0.1.10", "Web server (websites on 80 and 443)"],
-    ["10.0.1.53", "DNS server (name lookups, UDP 53)"],
-    ["10.0.1.0/24", "All servers. Same as $HOME_NET"],
-    ["10.0.5.0/24", "Admin laptops (IT staff)"],
-    ["10.0.2.0/24", "Student laptops"],
-    ["10.0.0.0/8", "Everything inside Byteville"],
-    ["203.0.113.0/24", 'The "bad neighborhood" (known attackers)']
-  ];
-  var P = (label, proto, src, dst, port, want, state = "new") => ({ label, proto, src, dst, port, want, state });
-  var E = (label, payload, want, dst = "10.0.1.10", port = 80, src = "198.51.100.40") => ({ label, proto: "tcp", src, dst, port, payload, want });
-  var FW_HEADER = "date       time     action proto src-ip          dst-ip      src-port dst-port";
-  function fwLine(t, action, proto, src, dst, sp, dp) {
-    return `2026-10-06 ${clock(t)} ${action.padEnd(6)} ${proto.padEnd(5)} ${src.padEnd(15)} ${dst.padEnd(11)} ${String(sp).padEnd(8)} ${dp}`;
-  }
-  var VISITORS = (r) => `${["198.51.100", "192.0.2"][Math.floor(r() * 2)]}.${2 + Math.floor(r() * 240)}`;
-  function knockLog() {
-    const r = rng(301);
-    const rows = [];
-    let t = 22 * 3600 + 5 * 60;
-    for (let i = 0; i < 70; i++) {
-      t += 3 + Math.floor(r() * 25);
-      const port = r() < 0.75 ? 443 : 80;
-      rows.push([t, fwLine(t, "ALLOW", "TCP", VISITORS(r), "10.0.1.10", 49152 + Math.floor(r() * 16e3), port)]);
-    }
-    for (const [ip, p] of [["192.0.2.14", 22], ["198.51.100.201", 3389], ["192.0.2.88", 23]]) {
-      const at = 22 * 3600 + 5 * 60 + Math.floor(r() * 1500);
-      rows.push([at, fwLine(at, "DROP", "TCP", ip, "10.0.1.10", 5e4 + Math.floor(r() * 9e3), p)]);
-    }
-    const scanner = "198.51.100.173";
-    let st = 22 * 3600 + 17 * 60 + 41;
-    [21, 22, 23, 25, 110, 135, 139, 445, 1433, 3306, 3389, 5900].forEach((p, i) => {
-      st += r() < 0.5 ? 0 : 1;
-      rows.push([st, fwLine(st, "DROP", "TCP", scanner, "10.0.1.10", 40100 + i, p)]);
-    });
-    rows.sort((a, b) => a[0] - b[0]);
-    return { log: rows.map((x) => x[1]), answer: scanner };
-  }
-  function openDoorLog() {
-    const r = rng(402);
-    const rows = [];
-    let t = 23 * 3600;
-    for (let i = 0; i < 80; i++) {
-      t += 2 + Math.floor(r() * 20);
-      rows.push([t, fwLine(t, "ALLOW", "TCP", VISITORS(r), "10.0.1.10", 49152 + Math.floor(r() * 16e3), r() < 0.8 ? 443 : 80)]);
-    }
-    const scanner = "192.0.2.61";
-    let st = 23 * 3600 + 9 * 60 + 12;
-    const ports = [20, 21, 22, 23, 25, 53, 110, 143, 445, 993, 1433, 3306, 3389, 5432, 5900, 8080, 8443, 9e3];
-    ports.forEach((p, i) => {
-      st += Math.floor(r() * 2);
-      rows.push([st, fwLine(st, p === 8443 ? "ALLOW" : "DROP", "TCP", scanner, "10.0.1.10", 51e3 + i, p)]);
-    });
-    rows.push([st + 30, fwLine(st + 30, "ALLOW", "TCP", scanner, "10.0.1.10", 51040, 443)]);
-    rows.sort((a, b) => a[0] - b[0]);
-    return { log: rows.map((x) => x[1]), answer: "8443" };
-  }
-  function bruteLog() {
-    const r = rng(707);
-    const rows = [];
-    const users = ["maya", "leo", "jcarter", "principal", "library", "coach"];
-    let t = 23 * 3600 + 30 * 60;
-    for (let i = 0; i < 45; i++) {
-      t += 10 + Math.floor(r() * 50);
-      const u = users[Math.floor(r() * users.length)];
-      const ip = `10.0.2.${10 + Math.floor(r() * 60)}`;
-      if (r() < 0.22) rows.push([t, `2026-10-06 ${clock(t)} sshd: Failed password for ${u} from ${ip} port ${5e4 + i}`]);
-      rows.push([t + 4, `2026-10-06 ${clock(t + 4)} sshd: Accepted password for ${u} from ${ip} port ${5e4 + i}`]);
-    }
-    const atk = "198.51.100.77";
-    let at = 23 * 3600 + 41 * 60 + 3;
-    const fails = 37;
-    for (let i = 0; i < fails; i++) {
-      at += 2 + Math.floor(r() * 3);
-      rows.push([at, `2026-10-06 ${clock(at)} sshd: Failed password for admin from ${atk} port ${41e3 + i}`]);
-    }
-    rows.push([at + 3, `2026-10-06 ${clock(at + 3)} sshd: Accepted password for admin from ${atk} port ${41e3 + fails}`]);
-    let b = 23 * 3600 + 52 * 60;
-    for (let i = 0; i < 6; i++) {
-      b += 5;
-      rows.push([b, `2026-10-06 ${clock(b)} sshd: Failed password for root from 192.0.2.140 port ${43e3 + i}`]);
-    }
-    rows.sort((a, c) => a[0] - c[0]);
-    return { log: rows.map((x) => x[1]), answer: String(fails) };
-  }
-  function slowLog() {
-    const r = rng(1111);
-    const rows = [];
-    let t = 1 * 3600;
-    const regulars = ["198.51.100.12", "192.0.2.200", "198.51.100.90", "192.0.2.7"];
-    for (let i = 0; i < 260; i++) {
-      t += 4 + Math.floor(r() * 36);
-      const ip = r() < 0.55 ? regulars[Math.floor(r() * regulars.length)] : VISITORS(r);
-      rows.push([t, fwLine(t, "ALLOW", "TCP", ip, "10.0.1.10", 49152 + Math.floor(r() * 16e3), r() < 0.7 ? 443 : 80)]);
-    }
-    for (let i = 0; i < 18; i++) {
-      const at = 3600 + i * 600 + 7;
-      rows.push([at, fwLine(at, "ALLOW", "ICMP", "10.0.5.9", "10.0.1.10", "-", "-")]);
-    }
-    for (let i = 0; i < 10; i++) {
-      const at = 3600 + Math.floor(r() * 1e4);
-      rows.push([at, fwLine(at, "DROP", "TCP", VISITORS(r), "10.0.1.10", 5e4 + i, [22, 23, 3389, 445][i % 4])]);
-    }
-    const scanner = "192.0.2.233";
-    let st = 3600 + 4 * 60;
-    [21, 22, 23, 25, 110, 139, 445, 1433, 3306, 3389, 5432, 5900, 6379, 8080].forEach((p, i) => {
-      st += 540 + Math.floor(r() * 240);
-      rows.push([st, fwLine(st, "DROP", "TCP", scanner, "10.0.1.10", 33e3 + i * 7, p)]);
-      if (i % 4 === 0) rows.push([st + 61, fwLine(st + 61, "ALLOW", "TCP", scanner, "10.0.1.10", 33300 + i, 443)]);
-    });
-    rows.sort((a, b) => a[0] - b[0]);
-    return { log: rows.map((x) => x[1]), answer: scanner };
-  }
-  var L3 = knockLog();
-  var L4 = openDoorLog();
-  var L7 = bruteLog();
-  var L11 = slowLog();
-  var NW_LEVELS = [
-    {
-      id: "nw1",
-      num: 1,
-      kind: "rules",
-      title: "Lights Out",
-      skill: "Default deny",
-      passcode: "amber-lantern",
-      story: "It is 10 PM. The night firewall has only one rule, and this firewall lets through anything that no rule matches.",
-      task: "Only secure web traffic (TCP 443) may reach the web server. Everything else must be blocked. Edit the rules, then press Run.",
-      starter: "# Allow secure web traffic to the web server\nallow tcp any -> 10.0.1.10 443\n",
-      hints: ['Run it first. Which packets got through that should not? The "rule" column says no rule matched them.', "Add a last line that catches everything:  block any any -> any any"],
-      packets: [
-        P("Visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
-        P("Another visitor opens the website", "tcp", "192.0.2.30", "10.0.1.10", 443, "allow"),
-        P("Stranger tries remote login", "tcp", "198.51.100.7", "10.0.1.10", 22, "block"),
-        P("Stranger tries remote desktop", "tcp", "192.0.2.99", "10.0.1.10", 3389, "block"),
-        P("Stranger pings the server", "icmp", "198.51.100.9", "10.0.1.10", 0, "block"),
-        P("Stranger reaches for a database", "tcp", "192.0.2.8", "10.0.1.20", 3306, "block")
-      ]
-    },
-    {
-      id: "nw2",
-      num: 2,
-      kind: "rules",
-      title: "Two Doors and a Phone Book",
-      skill: "Ports and protocols",
-      passcode: "quiet-harbor",
-      maxRules: 4,
-      story: "The web server needs both of its doors (80 and 443). The DNS server answers name lookups on UDP port 53.",
-      task: "Allow TCP 80 and 443 to the web server and UDP 53 to the DNS server. Block everything else. Use 4 rules or fewer.",
-      starter: "# Write your rules here. One rule per line.\n",
-      hints: ["One rule can list two ports with a comma:  allow tcp any -> 10.0.1.10 80,443", "DNS uses udp, not tcp. Then finish with  block any any -> any any"],
-      packets: [
-        P("Visitor opens the website (HTTP)", "tcp", "198.51.100.7", "10.0.1.10", 80, "allow"),
-        P("Visitor opens the website (HTTPS)", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
-        P("Laptop looks up a name", "udp", "10.0.2.15", "10.0.1.53", 53, "allow"),
-        P("Name lookup sent to the web server by mistake", "udp", "10.0.2.15", "10.0.1.10", 53, "block"),
-        P("TCP to the DNS server on port 53", "tcp", "192.0.2.44", "10.0.1.53", 53, "block"),
-        P("Website request sent to the DNS server", "tcp", "198.51.100.7", "10.0.1.53", 80, "block"),
-        P("Stranger tries remote login on the DNS server", "tcp", "192.0.2.99", "10.0.1.53", 22, "block"),
-        P("HTTPS to a different server", "tcp", "198.51.100.7", "10.0.1.11", 443, "block")
-      ]
-    },
-    {
-      id: "nw3",
-      num: 3,
-      kind: "log",
-      title: "Knock Knock",
-      skill: "Reading a firewall log",
-      passcode: "copper-falcon",
-      story: "Around 10:17 PM someone tried a lot of doors on the web server in just a few seconds. That is a port scan.",
-      task: "Find the IP address that scanned the server. Tip: type DROP in the filter box.",
-      question: "Which IP address scanned the server?",
-      placeholder: "e.g. 192.0.2.1",
-      header: FW_HEADER,
-      log: L3.log,
-      answer: L3.answer,
-      hints: ["Filter for DROP. A few addresses were dropped once. One was dropped many times.", "Look for one IP hitting many different ports within the same few seconds."]
-    },
-    {
-      id: "nw4",
-      num: 4,
-      kind: "log",
-      title: "The Open Door",
-      skill: "Finding a mistake in the rules",
-      passcode: "silver-meadow",
-      story: "Another scan, at 11:09 PM. This time one of the doors it tried was open, because someone forgot an old rule.",
-      task: "Find the port the scanner reached that is NOT a normal website port.",
-      question: "Which port did the scanner find open?",
-      placeholder: "a port number",
-      header: FW_HEADER,
-      log: L4.log,
-      answer: L4.answer,
-      hints: ["First find the scanner's IP (filter for DROP). Then filter for that IP.", "Among the scanner's lines, look for ALLOW. Ignore 443, which is the normal website."]
-    },
-    {
-      id: "nw5",
-      num: 5,
-      kind: "rules",
-      title: "Bad Neighborhood",
-      skill: "Rule order and exceptions",
-      passcode: "velvet-compass",
-      story: "All of 203.0.113.0/24 is known trouble, so the whole block is banned. But one partner company, 203.0.113.50, needs to reach the website.",
-      task: "The rules are right, but in the wrong order. Fix the order so every test passes.",
-      starter: "block any 203.0.113.0/24 -> any any\nallow tcp any -> 10.0.1.10 443\nallow tcp 203.0.113.50 -> 10.0.1.10 443\nblock any any -> any any\n",
-      hints: ["First match wins. Which rule catches the partner before the partner rule is ever read?", "Move the partner rule to the very top. An exception always goes above the rule it is an exception to."],
-      packets: [
-        P("Partner opens the website", "tcp", "203.0.113.50", "10.0.1.10", 443, "allow"),
-        P("Partner tries remote login", "tcp", "203.0.113.50", "10.0.1.10", 22, "block"),
-        P("Bad neighbor opens the website", "tcp", "203.0.113.66", "10.0.1.10", 443, "block"),
-        P("Bad neighbor tries HTTP", "tcp", "203.0.113.9", "10.0.1.10", 80, "block"),
-        P("Normal visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
-        P("Normal visitor tries remote login", "tcp", "198.51.100.7", "10.0.1.10", 22, "block")
-      ]
-    },
-    {
-      id: "nw6",
-      num: 6,
-      kind: "rules",
-      title: "Admins Only",
-      skill: "Least privilege with address blocks",
-      passcode: "maple-signal",
-      maxRules: 4,
-      story: "Remote login (SSH, port 22) is how IT fixes servers. Only the admin laptops in 10.0.5.0/24 should ever use it.",
-      task: "Anyone may open the website (443 on 10.0.1.10). Admin laptops may SSH to any server in 10.0.1.0/24. Block everything else. 4 rules or fewer.",
-      starter: "# Write your rules here.\n",
-      hints: ["Address blocks work as source or destination:  allow tcp 10.0.5.0/24 -> 10.0.1.0/24 22", "Three rules are enough: the website rule, the admin SSH rule, and block any any -> any any"],
-      packets: [
-        P("Admin fixes the web server", "tcp", "10.0.5.20", "10.0.1.10", 22, "allow"),
-        P("Admin fixes the DNS server", "tcp", "10.0.5.31", "10.0.1.53", 22, "allow"),
-        P("Student tries SSH to the web server", "tcp", "10.0.2.15", "10.0.1.10", 22, "block"),
-        P("Stranger tries SSH from the Internet", "tcp", "192.0.2.99", "10.0.1.10", 22, "block"),
-        P("Admin tries remote desktop", "tcp", "10.0.5.20", "10.0.1.10", 3389, "block"),
-        P("Admin SSH to a student laptop", "tcp", "10.0.5.20", "10.0.2.15", 22, "block"),
-        P("Visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
-        P("Student opens the website", "tcp", "10.0.2.15", "10.0.1.10", 443, "allow")
-      ]
-    },
-    {
-      id: "nw7",
-      num: 7,
-      kind: "log",
-      title: "Count the Guesses",
-      skill: "Spotting password guessing",
-      passcode: "cedar-beacon",
-      story: "This is the login log for the servers. Students mistype passwords sometimes. But one address kept guessing the admin password until it got in.",
-      task: "Count how many times the attacker failed before the successful login.",
-      question: "How many failed logins did the attacker make before getting in?",
-      placeholder: "a number",
-      header: "date       time     message",
-      log: L7.log,
-      answer: L7.answer,
-      hints: ['Filter for "Accepted password for admin". Which IP got in?', 'Now filter for that IP and count the "Failed" lines. The counter under the log helps.']
-    },
-    {
-      id: "nw8",
-      num: 8,
-      kind: "rules",
-      title: "Remember Me",
-      skill: "Stateful filtering",
-      passcode: "harbor-thistle",
-      maxRules: 4,
-      story: "Student laptops (10.0.2.0/24) should browse the web. Replies to their requests must come back in. Nobody outside may start a new connection to a laptop.",
-      task: "Let laptops start web connections out (TCP 80, 443). Let replies come back in. Block everything else. Add the word established to the end of a rule to match only replies.",
-      starter: "# Example of the new word:\n# allow tcp any -> 10.0.2.0/24 any established\n",
-      hints: ["Replies come back to a random high port on the laptop, so the reply rule uses port any plus established.", "Three rules: laptops out on 80,443; replies in with established; then block any any -> any any"],
-      packets: [
-        P("Laptop opens a website (HTTPS)", "tcp", "10.0.2.15", "198.51.100.25", 443, "allow"),
-        P("Laptop opens a website (HTTP)", "tcp", "10.0.2.40", "198.51.100.25", 80, "allow"),
-        P("The website replies to the laptop", "tcp", "198.51.100.25", "10.0.2.15", 51544, "allow", "est"),
-        P("Stranger tries file sharing on a laptop", "tcp", "192.0.2.99", "10.0.2.15", 445, "block"),
-        P("Stranger tries remote desktop on a laptop", "tcp", "192.0.2.99", "10.0.2.40", 3389, "block"),
-        P('Fake "reply" with no conversation in the table', "tcp", "198.51.100.88", "10.0.2.15", 51544, "block"),
-        P("Laptop connects to a chat port used by botnets", "tcp", "10.0.2.15", "192.0.2.50", 6667, "block"),
-        P("Stranger pings a laptop", "icmp", "192.0.2.99", "10.0.2.15", 0, "block")
-      ]
-    },
-    {
-      id: "nw9",
-      num: 9,
-      kind: "detect",
-      title: "First Alert",
-      skill: "Writing a detection rule",
-      passcode: "lantern-orchid",
-      story: "The IDS watches web traffic to the servers. Someone wrote a rule for SQL injection, but attackers change upper and lower case to slip past it.",
-      task: "Make the rule alert on every SQL injection attempt and stay quiet on normal searches.",
-      starter: 'alert tcp any any -> $HOME_NET 80 (msg:"SQL injection"; content:"OR 1=1"; sid:1000001;)\n',
-      hints: ["Run it. Which attacks were missed? Look at the letters: OR, or, Or.", "Add  nocase;  right after the content so upper and lower case both match."],
-      events: [
-        E("Classic injection", "GET /search?q=' OR 1=1 --", "alert"),
-        E("Lower-case injection", "GET /login?user=admin' or 1=1--", "alert"),
-        E("Mixed-case injection", "POST /login user=admin' Or 1=1 #", "alert"),
-        E("Normal search", "GET /search?q=library hours", "quiet"),
-        E('Normal search with "or"', "GET /search?q=1 or 2 day field trip", "quiet"),
-        E("Normal page", "GET /courses/cybr2000", "quiet")
-      ]
-    },
-    {
-      id: "nw10",
-      num: 10,
-      kind: "detect",
-      title: "Too Much Noise",
-      skill: "Tuning false positives",
-      passcode: "willow-cipher",
-      story: 'The IDS team is drowning in alerts. This rule fires on anything that says "script", including the drama club and the coding class.',
-      task: "Tune the rule: catch every script attack, and zero false alarms.",
-      starter: 'alert tcp any any -> $HOME_NET 80 (msg:"Script attack"; content:"script"; nocase; sid:1000002;)\n',
-      hints: ["What do all the real attacks have that the normal pages do not? Look right before the word.", 'Change the content to "<script" and keep nocase.'],
-      events: [
-        E("Attack in a comment", "POST /comment text=<script>steal(cookie)<\/script>", "alert"),
-        E("Attack in capitals", "GET /search?q=<SCRIPT SRC=//evil.example/x.js>", "alert"),
-        E("Attack in mixed case", "POST /profile bio=<ScRiPt>alert(1)<\/ScRiPt>", "alert"),
-        E("Drama club script", "GET /drama/script-for-the-play.pdf", "quiet"),
-        E("Coding class page", "GET /cs/javascript-basics.html", "quiet"),
-        E("Movie search", "GET /search?q=movie script ideas", "quiet"),
-        E("Python lesson", "GET /cs/python-script-homework.py", "quiet")
-      ]
-    },
-    {
-      id: "nw11",
-      num: 11,
-      kind: "log",
-      title: "Low and Slow",
-      skill: "Finding a hidden pattern",
-      passcode: "granite-sparrow",
-      story: "Three hours of overnight traffic. A careful attacker is scanning one port every ten minutes so nobody notices. Busy normal visitors make far more noise.",
-      task: "Find the slow scanner. Counting lines will fool you. Count different ports instead.",
-      question: "Which IP address is scanning slowly?",
-      placeholder: "e.g. 192.0.2.1",
-      header: FW_HEADER,
-      log: L11.log,
-      answer: L11.answer,
-      hints: ["Filter for DROP. Most dropped addresses appear once. One keeps coming back.", "The scanner also visits port 443 now and then to look normal. Which IP has DROP lines on many different ports?"]
-    },
-    {
-      id: "nw12",
-      num: 12,
-      kind: "rules",
-      title: "Night Shift",
-      skill: "The whole firewall",
-      passcode: "sentinel-dawn",
-      maxRules: 7,
-      story: "The night shift chief has called in sick. You write the whole firewall for Byteville tonight.",
-      task: "In 7 rules or fewer: (1) nothing at all from 203.0.113.0/24. (2) Anyone may reach the web server on 80 and 443. (3) Anything inside Byteville (10.0.0.0/8) may use DNS: UDP 53 to 10.0.1.53. (4) SSH to servers only from admin laptops. (5) Student laptops may start web connections out on 80 and 443. (6) Replies may come back to student laptops. (7) Block everything else.",
-      starter: "# Your firewall. 7 rules or fewer.\n",
-      hints: ['Put the bad neighborhood rule first. Otherwise a "reply" from that neighborhood would be let in by your replies rule.', "One rule per requirement, in the same order as the list, works."],
-      packets: [
-        P("Visitor opens the website (HTTPS)", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
-        P("Visitor opens the website (HTTP)", "tcp", "192.0.2.30", "10.0.1.10", 80, "allow"),
-        P("Bad neighbor opens the website", "tcp", "203.0.113.66", "10.0.1.10", 443, "block"),
-        P("Student laptop looks up a name", "udp", "10.0.2.15", "10.0.1.53", 53, "allow"),
-        P("Outsider uses our DNS server", "udp", "198.51.100.7", "10.0.1.53", 53, "block"),
-        P("Admin SSH to the DNS server", "tcp", "10.0.5.20", "10.0.1.53", 22, "allow"),
-        P("Student tries SSH to the web server", "tcp", "10.0.2.15", "10.0.1.10", 22, "block"),
-        P("Outsider tries SSH", "tcp", "192.0.2.99", "10.0.1.10", 22, "block"),
-        P("Laptop opens a website", "tcp", "10.0.2.15", "198.51.100.25", 443, "allow"),
-        P("Website replies to the laptop", "tcp", "198.51.100.25", "10.0.2.15", 51544, "allow", "est"),
-        P("Outsider tries file sharing on a laptop", "tcp", "192.0.2.99", "10.0.2.15", 445, "block"),
-        P('"Reply" from the bad neighborhood', "tcp", "203.0.113.9", "10.0.2.15", 51544, "block", "est"),
-        P("Laptop sends email straight out (spam bot)", "tcp", "10.0.2.15", "198.51.100.25", 25, "block"),
-        P("Outsider pings the web server", "icmp", "198.51.100.9", "10.0.1.10", 0, "block"),
-        P("Admin tries remote desktop", "tcp", "10.0.5.20", "10.0.1.10", 3389, "block"),
-        P("Laptop SSH to the Internet", "tcp", "10.0.2.15", "198.51.100.25", 22, "block")
-      ]
-    }
-  ];
-  var nwBase = (n2) => 40 + n2 * 10;
-
-  // src/nightwatch/screen.ts
-  function nightWatchOpen() {
-    const c = config();
-    return c.nightWatchOpen === true || store.progress.done.length >= CHAPTERS.length;
-  }
-  function badge(id2) {
-    const b = award(id2);
-    if (b) {
-      sfx.badge();
-      toast(`Badge unlocked: <b>${b}</b>`, "badge");
-    }
-  }
-  var nwPoints = () => NW_LEVELS.reduce((a, l) => a + (store.progress.best[l.id] || 0), 0);
-  var maxNw = () => NW_LEVELS.reduce((a, l) => a + nwBase(l.num), 0);
-  var KIND = { rules: "Firewall rules", log: "Log hunt", detect: "Detection rule" };
-  function showNightWatch(app2, go2) {
-    const p = store.progress;
-    if (!nightWatchOpen()) {
-      app2.innerHTML = `<section class="nw"><div class="nw-hero"><p class="eyebrow nw-eye">After graduation</p><h1>Night Watch is locked</h1>
+      <div class="feedback" hidden></div>`,e.querySelectorAll(".mv").forEach(A=>A.addEventListener("click",()=>{var B;let S=Number(A.dataset.i),D=Number(A.dataset.d);[i[S],i[S+D]]=[i[S+D],i[S]],H.click(),O(),(B=e.querySelector(`.mv[data-i="${S+D}"][data-d="${D}"]`))==null||B.focus()})),e.querySelector("#runTest").addEventListener("click",T);let N=e.querySelector("#hintBtn");N&&N.addEventListener("click",()=>{e.querySelector(".hint").hidden=!1})},T=()=>{if(u)return;c++;let v=r.tests.map(B=>st(i,B)),N=v.every((B,q)=>B.allow===r.tests[q].allow);O(v);let A=N?Math.max(10,50-(c-1)*15):0,S=s.answer({itemId:`${r.id}-try${c}`,prompt:r.goal,choice:i.map(B=>B.text).join(" > "),correctAnswer:"all tests pass",correct:N,timeMs:performance.now()-w,base:A});w=performance.now();let D=e.querySelector(".feedback");N?(u=!0,e.querySelectorAll(".mv, #runTest, #hintBtn").forEach(B=>B.disabled=!0),H.right(),Ce(e.querySelector("#runTest"),`+${S}`),ue(D,!0,c===1?"First try! Every test packet went where it should.":"All test packets went where they should.",S,null,()=>{o++,o<t.puzzles.length?n(t.puzzles[o]):s.done()},2200)):(H.wrong(),D.className="feedback no",D.hidden=!1,D.innerHTML=`<div class="fb-title">Some packets went the wrong way.</div><p>Look at the red tests. Which rule caught them? Move rules and test again.${c>=1?" You can also open a hint.":""}</p>`)};O()};n(t.puzzles[0])}var Ue="date       time     action proto src-ip          dst-ip      src-port dst-port",$e={nw3:["2026-10-06 22:05:14 ALLOW  TCP   198.51.100.74   10.0.1.10   56228    443","2026-10-06 22:05:21 ALLOW  TCP   198.51.100.91   10.0.1.10   52495    443","2026-10-06 22:05:26 ALLOW  TCP   192.0.2.53      10.0.1.10   50543    80","2026-10-06 22:05:44 ALLOW  TCP   198.51.100.175  10.0.1.10   51768    443","2026-10-06 22:05:47 ALLOW  TCP   192.0.2.237     10.0.1.10   65082    80","2026-10-06 22:05:56 ALLOW  TCP   192.0.2.145     10.0.1.10   56288    443","2026-10-06 22:06:23 ALLOW  TCP   198.51.100.102  10.0.1.10   63602    443","2026-10-06 22:06:44 ALLOW  TCP   192.0.2.240     10.0.1.10   49737    443","2026-10-06 22:06:54 ALLOW  TCP   192.0.2.212     10.0.1.10   50659    443","2026-10-06 22:07:01 ALLOW  TCP   198.51.100.10   10.0.1.10   50093    443","2026-10-06 22:07:19 ALLOW  TCP   192.0.2.114     10.0.1.10   55110    443","2026-10-06 22:07:46 ALLOW  TCP   192.0.2.37      10.0.1.10   51185    80","2026-10-06 22:07:54 ALLOW  TCP   198.51.100.217  10.0.1.10   54503    443","2026-10-06 22:08:01 ALLOW  TCP   198.51.100.22   10.0.1.10   56376    80","2026-10-06 22:08:26 ALLOW  TCP   198.51.100.223  10.0.1.10   49528    443","2026-10-06 22:08:41 ALLOW  TCP   192.0.2.124     10.0.1.10   59506    443","2026-10-06 22:09:01 ALLOW  TCP   198.51.100.225  10.0.1.10   50321    80","2026-10-06 22:09:27 ALLOW  TCP   192.0.2.83      10.0.1.10   61067    443","2026-10-06 22:09:49 ALLOW  TCP   192.0.2.62      10.0.1.10   50044    443","2026-10-06 22:10:02 ALLOW  TCP   192.0.2.22      10.0.1.10   49757    443","2026-10-06 22:10:08 ALLOW  TCP   198.51.100.98   10.0.1.10   51830    443","2026-10-06 22:10:17 ALLOW  TCP   198.51.100.167  10.0.1.10   61976    443","2026-10-06 22:10:24 ALLOW  TCP   198.51.100.144  10.0.1.10   59717    443","2026-10-06 22:10:34 ALLOW  TCP   198.51.100.170  10.0.1.10   52913    443","2026-10-06 22:10:45 ALLOW  TCP   192.0.2.224     10.0.1.10   50239    80","2026-10-06 22:10:48 ALLOW  TCP   192.0.2.217     10.0.1.10   64745    443","2026-10-06 22:10:55 ALLOW  TCP   198.51.100.121  10.0.1.10   51857    80","2026-10-06 22:11:07 ALLOW  TCP   198.51.100.53   10.0.1.10   59912    443","2026-10-06 22:11:24 ALLOW  TCP   192.0.2.23      10.0.1.10   55908    80","2026-10-06 22:11:32 ALLOW  TCP   192.0.2.163     10.0.1.10   64665    80","2026-10-06 22:11:53 ALLOW  TCP   192.0.2.184     10.0.1.10   49700    443","2026-10-06 22:11:56 ALLOW  TCP   192.0.2.138     10.0.1.10   53673    443","2026-10-06 22:12:06 DROP   TCP   198.51.100.134  10.0.1.10   52091    3389","2026-10-06 22:12:07 ALLOW  TCP   192.0.2.116     10.0.1.10   64543    443","2026-10-06 22:12:19 ALLOW  TCP   198.51.100.30   10.0.1.10   53788    443","2026-10-06 22:12:29 ALLOW  TCP   192.0.2.152     10.0.1.10   65102    443","2026-10-06 22:12:47 ALLOW  TCP   192.0.2.230     10.0.1.10   60774    80","2026-10-06 22:13:05 ALLOW  TCP   198.51.100.2    10.0.1.10   54264    443","2026-10-06 22:13:25 ALLOW  TCP   192.0.2.225     10.0.1.10   54275    443","2026-10-06 22:13:43 ALLOW  TCP   192.0.2.31      10.0.1.10   51650    80","2026-10-06 22:13:48 ALLOW  TCP   198.51.100.45   10.0.1.10   49952    443","2026-10-06 22:14:07 ALLOW  TCP   192.0.2.224     10.0.1.10   52149    443","2026-10-06 22:14:11 ALLOW  TCP   192.0.2.183     10.0.1.10   63192    443","2026-10-06 22:14:33 ALLOW  TCP   192.0.2.36      10.0.1.10   57873    443","2026-10-06 22:14:58 ALLOW  TCP   198.51.100.208  10.0.1.10   63132    443","2026-10-06 22:15:14 ALLOW  TCP   192.0.2.50      10.0.1.10   51728    443","2026-10-06 22:15:32 ALLOW  TCP   198.51.100.90   10.0.1.10   55360    443","2026-10-06 22:15:57 ALLOW  TCP   192.0.2.121     10.0.1.10   61362    443","2026-10-06 22:16:19 ALLOW  TCP   198.51.100.217  10.0.1.10   57908    443","2026-10-06 22:16:37 ALLOW  TCP   198.51.100.50   10.0.1.10   52885    443","2026-10-06 22:16:59 ALLOW  TCP   192.0.2.208     10.0.1.10   60505    80","2026-10-06 22:17:15 ALLOW  TCP   192.0.2.213     10.0.1.10   56131    443","2026-10-06 22:17:40 ALLOW  TCP   192.0.2.142     10.0.1.10   64203    80","2026-10-06 22:17:41 DROP   TCP   192.0.2.239     10.0.1.10   40100    21","2026-10-06 22:17:42 DROP   TCP   192.0.2.239     10.0.1.10   40101    22","2026-10-06 22:17:42 DROP   TCP   192.0.2.239     10.0.1.10   40102    23","2026-10-06 22:17:43 DROP   TCP   192.0.2.239     10.0.1.10   40103    25","2026-10-06 22:17:44 ALLOW  TCP   198.51.100.68   10.0.1.10   64012    443","2026-10-06 22:17:44 DROP   TCP   192.0.2.239     10.0.1.10   40104    110","2026-10-06 22:17:44 DROP   TCP   192.0.2.239     10.0.1.10   40105    135","2026-10-06 22:17:44 DROP   TCP   192.0.2.239     10.0.1.10   40106    139","2026-10-06 22:17:44 DROP   TCP   192.0.2.239     10.0.1.10   40107    445","2026-10-06 22:17:44 DROP   TCP   192.0.2.239     10.0.1.10   40108    1433","2026-10-06 22:17:45 DROP   TCP   192.0.2.239     10.0.1.10   40109    3306","2026-10-06 22:17:45 DROP   TCP   192.0.2.239     10.0.1.10   40110    3389","2026-10-06 22:17:45 DROP   TCP   192.0.2.239     10.0.1.10   40111    5900","2026-10-06 22:17:54 ALLOW  TCP   192.0.2.17      10.0.1.10   53741    443","2026-10-06 22:18:20 ALLOW  TCP   198.51.100.18   10.0.1.10   49178    443","2026-10-06 22:18:44 ALLOW  TCP   198.51.100.204  10.0.1.10   64406    443","2026-10-06 22:19:07 ALLOW  TCP   198.51.100.14   10.0.1.10   58378    443","2026-10-06 22:19:33 ALLOW  TCP   198.51.100.34   10.0.1.10   64446    443","2026-10-06 22:19:48 ALLOW  TCP   198.51.100.45   10.0.1.10   49234    443","2026-10-06 22:20:05 ALLOW  TCP   198.51.100.59   10.0.1.10   63928    443","2026-10-06 22:20:29 ALLOW  TCP   198.51.100.12   10.0.1.10   57308    443","2026-10-06 22:20:39 ALLOW  TCP   192.0.2.84      10.0.1.10   60335    443","2026-10-06 22:20:57 ALLOW  TCP   198.51.100.139  10.0.1.10   64812    80","2026-10-06 22:21:00 ALLOW  TCP   192.0.2.97      10.0.1.10   59627    443","2026-10-06 22:21:19 ALLOW  TCP   192.0.2.200     10.0.1.10   60653    443","2026-10-06 22:21:34 ALLOW  TCP   198.51.100.16   10.0.1.10   52619    80","2026-10-06 22:21:52 ALLOW  TCP   192.0.2.177     10.0.1.10   60900    443","2026-10-06 22:22:12 ALLOW  TCP   198.51.100.88   10.0.1.10   55430    443","2026-10-06 22:22:18 ALLOW  TCP   198.51.100.19   10.0.1.10   53769    443","2026-10-06 22:22:29 ALLOW  TCP   192.0.2.126     10.0.1.10   61589    80","2026-10-06 22:23:07 DROP   TCP   198.51.100.135  10.0.1.10   51193    22","2026-10-06 22:28:34 DROP   TCP   192.0.2.126     10.0.1.10   54688    23"],nw4:["2026-10-06 23:00:15 ALLOW  TCP   198.51.100.121  10.0.1.10   54867    443","2026-10-06 23:00:23 ALLOW  TCP   192.0.2.171     10.0.1.10   56585    443","2026-10-06 23:00:38 ALLOW  TCP   192.0.2.17      10.0.1.10   64280    80","2026-10-06 23:00:47 ALLOW  TCP   198.51.100.188  10.0.1.10   56584    443","2026-10-06 23:00:50 ALLOW  TCP   192.0.2.210     10.0.1.10   52646    443","2026-10-06 23:01:10 ALLOW  TCP   198.51.100.113  10.0.1.10   61378    443","2026-10-06 23:01:21 ALLOW  TCP   198.51.100.157  10.0.1.10   56899    443","2026-10-06 23:01:41 ALLOW  TCP   198.51.100.140  10.0.1.10   52459    443","2026-10-06 23:01:48 ALLOW  TCP   192.0.2.173     10.0.1.10   57026    443","2026-10-06 23:01:54 ALLOW  TCP   198.51.100.151  10.0.1.10   53339    443","2026-10-06 23:02:06 ALLOW  TCP   192.0.2.17      10.0.1.10   60610    443","2026-10-06 23:02:21 ALLOW  TCP   198.51.100.131  10.0.1.10   54106    443","2026-10-06 23:02:39 ALLOW  TCP   198.51.100.168  10.0.1.10   62619    443","2026-10-06 23:02:42 ALLOW  TCP   198.51.100.113  10.0.1.10   50957    443","2026-10-06 23:02:58 ALLOW  TCP   192.0.2.144     10.0.1.10   50415    443","2026-10-06 23:03:16 ALLOW  TCP   198.51.100.35   10.0.1.10   50386    443","2026-10-06 23:03:31 ALLOW  TCP   198.51.100.118  10.0.1.10   56623    443","2026-10-06 23:03:49 ALLOW  TCP   198.51.100.4    10.0.1.10   60986    443","2026-10-06 23:03:59 ALLOW  TCP   192.0.2.52      10.0.1.10   52042    443","2026-10-06 23:04:04 ALLOW  TCP   192.0.2.68      10.0.1.10   50960    80","2026-10-06 23:04:14 ALLOW  TCP   198.51.100.119  10.0.1.10   57077    443","2026-10-06 23:04:27 ALLOW  TCP   192.0.2.114     10.0.1.10   53662    443","2026-10-06 23:04:46 ALLOW  TCP   192.0.2.61      10.0.1.10   58419    443","2026-10-06 23:05:05 ALLOW  TCP   192.0.2.74      10.0.1.10   56399    443","2026-10-06 23:05:18 ALLOW  TCP   192.0.2.116     10.0.1.10   53469    80","2026-10-06 23:05:21 ALLOW  TCP   198.51.100.24   10.0.1.10   57141    443","2026-10-06 23:05:36 ALLOW  TCP   192.0.2.85      10.0.1.10   63508    443","2026-10-06 23:05:42 ALLOW  TCP   198.51.100.195  10.0.1.10   57992    443","2026-10-06 23:05:53 ALLOW  TCP   192.0.2.197     10.0.1.10   64001    443","2026-10-06 23:06:09 ALLOW  TCP   198.51.100.116  10.0.1.10   50388    443","2026-10-06 23:06:29 ALLOW  TCP   198.51.100.108  10.0.1.10   50455    443","2026-10-06 23:06:31 ALLOW  TCP   192.0.2.35      10.0.1.10   62089    443","2026-10-06 23:06:42 ALLOW  TCP   198.51.100.63   10.0.1.10   59641    443","2026-10-06 23:07:03 ALLOW  TCP   198.51.100.186  10.0.1.10   51457    80","2026-10-06 23:07:09 ALLOW  TCP   192.0.2.178     10.0.1.10   61567    443","2026-10-06 23:07:29 ALLOW  TCP   192.0.2.146     10.0.1.10   60208    80","2026-10-06 23:07:40 ALLOW  TCP   198.51.100.103  10.0.1.10   57107    443","2026-10-06 23:07:58 ALLOW  TCP   198.51.100.241  10.0.1.10   55992    443","2026-10-06 23:08:17 ALLOW  TCP   198.51.100.22   10.0.1.10   55123    443","2026-10-06 23:08:22 ALLOW  TCP   198.51.100.89   10.0.1.10   50880    443","2026-10-06 23:08:34 ALLOW  TCP   198.51.100.106  10.0.1.10   63867    443","2026-10-06 23:08:46 ALLOW  TCP   198.51.100.39   10.0.1.10   52369    443","2026-10-06 23:08:55 ALLOW  TCP   198.51.100.46   10.0.1.10   61246    443","2026-10-06 23:08:59 ALLOW  TCP   192.0.2.6       10.0.1.10   60001    443","2026-10-06 23:09:13 DROP   TCP   192.0.2.73      10.0.1.10   51000    20","2026-10-06 23:09:13 DROP   TCP   192.0.2.73      10.0.1.10   51001    21","2026-10-06 23:09:13 DROP   TCP   192.0.2.73      10.0.1.10   51002    22","2026-10-06 23:09:14 DROP   TCP   192.0.2.73      10.0.1.10   51003    23","2026-10-06 23:09:15 ALLOW  TCP   198.51.100.199  10.0.1.10   56558    443","2026-10-06 23:09:15 DROP   TCP   192.0.2.73      10.0.1.10   51004    25","2026-10-06 23:09:16 DROP   TCP   192.0.2.73      10.0.1.10   51005    53","2026-10-06 23:09:16 DROP   TCP   192.0.2.73      10.0.1.10   51006    110","2026-10-06 23:09:17 DROP   TCP   192.0.2.73      10.0.1.10   51007    143","2026-10-06 23:09:18 DROP   TCP   192.0.2.73      10.0.1.10   51008    445","2026-10-06 23:09:18 DROP   TCP   192.0.2.73      10.0.1.10   51009    993","2026-10-06 23:09:19 DROP   TCP   192.0.2.73      10.0.1.10   51010    1433","2026-10-06 23:09:20 DROP   TCP   192.0.2.73      10.0.1.10   51011    3306","2026-10-06 23:09:21 DROP   TCP   192.0.2.73      10.0.1.10   51012    3389","2026-10-06 23:09:21 DROP   TCP   192.0.2.73      10.0.1.10   51013    5432","2026-10-06 23:09:21 DROP   TCP   192.0.2.73      10.0.1.10   51014    5900","2026-10-06 23:09:22 DROP   TCP   192.0.2.73      10.0.1.10   51015    8080","2026-10-06 23:09:22 ALLOW  TCP   192.0.2.73      10.0.1.10   51016    7443","2026-10-06 23:09:23 ALLOW  TCP   192.0.2.87      10.0.1.10   56411    80","2026-10-06 23:09:23 DROP   TCP   192.0.2.73      10.0.1.10   51017    9000","2026-10-06 23:09:25 ALLOW  TCP   198.51.100.95   10.0.1.10   54908    443","2026-10-06 23:09:34 ALLOW  TCP   198.51.100.27   10.0.1.10   49618    443","2026-10-06 23:09:53 ALLOW  TCP   192.0.2.73      10.0.1.10   51040    443","2026-10-06 23:09:54 ALLOW  TCP   192.0.2.120     10.0.1.10   57624    443","2026-10-06 23:09:56 ALLOW  TCP   192.0.2.90      10.0.1.10   50844    443","2026-10-06 23:10:11 ALLOW  TCP   198.51.100.154  10.0.1.10   59582    80","2026-10-06 23:10:21 ALLOW  TCP   198.51.100.191  10.0.1.10   62470    443","2026-10-06 23:10:23 ALLOW  TCP   192.0.2.199     10.0.1.10   59997    443","2026-10-06 23:10:44 ALLOW  TCP   192.0.2.63      10.0.1.10   57625    443","2026-10-06 23:10:59 ALLOW  TCP   198.51.100.116  10.0.1.10   54116    443","2026-10-06 23:11:16 ALLOW  TCP   198.51.100.214  10.0.1.10   62505    443","2026-10-06 23:11:37 ALLOW  TCP   192.0.2.39      10.0.1.10   62576    443","2026-10-06 23:11:46 ALLOW  TCP   198.51.100.134  10.0.1.10   57838    443","2026-10-06 23:11:58 ALLOW  TCP   192.0.2.75      10.0.1.10   50135    443","2026-10-06 23:12:11 ALLOW  TCP   192.0.2.34      10.0.1.10   55109    443","2026-10-06 23:12:17 ALLOW  TCP   198.51.100.209  10.0.1.10   57424    443","2026-10-06 23:12:21 ALLOW  TCP   198.51.100.46   10.0.1.10   49254    443","2026-10-06 23:12:42 ALLOW  TCP   198.51.100.156  10.0.1.10   50954    443","2026-10-06 23:12:54 ALLOW  TCP   192.0.2.128     10.0.1.10   49930    443","2026-10-06 23:12:56 ALLOW  TCP   192.0.2.216     10.0.1.10   65075    443","2026-10-06 23:13:04 ALLOW  TCP   198.51.100.12   10.0.1.10   54999    443","2026-10-06 23:13:11 ALLOW  TCP   192.0.2.59      10.0.1.10   61907    80","2026-10-06 23:13:24 ALLOW  TCP   198.51.100.117  10.0.1.10   53798    80","2026-10-06 23:13:38 ALLOW  TCP   192.0.2.80      10.0.1.10   61867    443","2026-10-06 23:13:41 ALLOW  TCP   192.0.2.26      10.0.1.10   50682    443","2026-10-06 23:13:44 ALLOW  TCP   192.0.2.33      10.0.1.10   64126    443","2026-10-06 23:14:01 ALLOW  TCP   198.51.100.217  10.0.1.10   62345    443","2026-10-06 23:14:04 ALLOW  TCP   198.51.100.30   10.0.1.10   56489    443","2026-10-06 23:14:08 ALLOW  TCP   192.0.2.35      10.0.1.10   50652    443","2026-10-06 23:14:13 ALLOW  TCP   198.51.100.208  10.0.1.10   55835    443","2026-10-06 23:14:25 ALLOW  TCP   198.51.100.128  10.0.1.10   51788    443","2026-10-06 23:14:42 ALLOW  TCP   198.51.100.212  10.0.1.10   57512    443","2026-10-06 23:15:00 ALLOW  TCP   192.0.2.162     10.0.1.10   59309    443","2026-10-06 23:15:11 ALLOW  TCP   192.0.2.144     10.0.1.10   63533    443","2026-10-06 23:15:18 ALLOW  TCP   198.51.100.90   10.0.1.10   54988    443"],nw7:["2026-10-06 23:30:38 sshd: Accepted password for library from 10.0.2.37 port 50000","2026-10-06 23:31:03 sshd: Failed password for principal from 10.0.2.35 port 50001","2026-10-06 23:31:07 sshd: Accepted password for principal from 10.0.2.35 port 50001","2026-10-06 23:31:21 sshd: Accepted password for coach from 10.0.2.15 port 50002","2026-10-06 23:31:35 sshd: Accepted password for library from 10.0.2.21 port 50003","2026-10-06 23:31:46 sshd: Accepted password for jcarter from 10.0.2.53 port 50004","2026-10-06 23:32:12 sshd: Accepted password for leo from 10.0.2.20 port 50005","2026-10-06 23:33:03 sshd: Failed password for principal from 10.0.2.32 port 50006","2026-10-06 23:33:07 sshd: Accepted password for principal from 10.0.2.32 port 50006","2026-10-06 23:33:25 sshd: Accepted password for library from 10.0.2.68 port 50007","2026-10-06 23:34:12 sshd: Accepted password for leo from 10.0.2.25 port 50008","2026-10-06 23:34:49 sshd: Accepted password for maya from 10.0.2.43 port 50009","2026-10-06 23:35:43 sshd: Accepted password for principal from 10.0.2.53 port 50010","2026-10-06 23:36:32 sshd: Accepted password for leo from 10.0.2.17 port 50011","2026-10-06 23:37:21 sshd: Accepted password for maya from 10.0.2.63 port 50012","2026-10-06 23:37:58 sshd: Accepted password for library from 10.0.2.41 port 50013","2026-10-06 23:38:33 sshd: Accepted password for coach from 10.0.2.26 port 50014","2026-10-06 23:39:02 sshd: Accepted password for jcarter from 10.0.2.15 port 50015","2026-10-06 23:39:52 sshd: Accepted password for maya from 10.0.2.42 port 50016","2026-10-06 23:40:48 sshd: Accepted password for principal from 10.0.2.39 port 50017","2026-10-06 23:41:07 sshd: Failed password for admin from 198.51.100.122 port 41000","2026-10-06 23:41:09 sshd: Failed password for admin from 198.51.100.122 port 41001","2026-10-06 23:41:13 sshd: Failed password for admin from 198.51.100.122 port 41002","2026-10-06 23:41:17 sshd: Failed password for admin from 198.51.100.122 port 41003","2026-10-06 23:41:21 sshd: Failed password for admin from 198.51.100.122 port 41004","2026-10-06 23:41:24 sshd: Failed password for admin from 198.51.100.122 port 41005","2026-10-06 23:41:28 sshd: Failed password for admin from 198.51.100.122 port 41006","2026-10-06 23:41:30 sshd: Failed password for admin from 198.51.100.122 port 41007","2026-10-06 23:41:34 sshd: Accepted password for principal from 10.0.2.23 port 50018","2026-10-06 23:41:34 sshd: Failed password for admin from 198.51.100.122 port 41008","2026-10-06 23:41:38 sshd: Failed password for admin from 198.51.100.122 port 41009","2026-10-06 23:41:42 sshd: Failed password for admin from 198.51.100.122 port 41010","2026-10-06 23:41:44 sshd: Failed password for admin from 198.51.100.122 port 41011","2026-10-06 23:41:47 sshd: Failed password for admin from 198.51.100.122 port 41012","2026-10-06 23:41:51 sshd: Failed password for admin from 198.51.100.122 port 41013","2026-10-06 23:41:54 sshd: Failed password for admin from 198.51.100.122 port 41014","2026-10-06 23:41:57 sshd: Failed password for admin from 198.51.100.122 port 41015","2026-10-06 23:42:01 sshd: Failed password for admin from 198.51.100.122 port 41016","2026-10-06 23:42:05 sshd: Failed password for admin from 198.51.100.122 port 41017","2026-10-06 23:42:09 sshd: Failed password for admin from 198.51.100.122 port 41018","2026-10-06 23:42:12 sshd: Failed password for admin from 198.51.100.122 port 41019","2026-10-06 23:42:16 sshd: Failed password for admin from 198.51.100.122 port 41020","2026-10-06 23:42:20 sshd: Failed password for admin from 198.51.100.122 port 41021","2026-10-06 23:42:23 sshd: Failed password for admin from 198.51.100.122 port 41022","2026-10-06 23:42:25 sshd: Failed password for admin from 198.51.100.122 port 41023","2026-10-06 23:42:28 sshd: Failed password for admin from 198.51.100.122 port 41024","2026-10-06 23:42:31 sshd: Failed password for admin from 198.51.100.122 port 41025","2026-10-06 23:42:32 sshd: Accepted password for coach from 10.0.2.41 port 50019","2026-10-06 23:42:33 sshd: Failed password for admin from 198.51.100.122 port 41026","2026-10-06 23:42:37 sshd: Failed password for admin from 198.51.100.122 port 41027","2026-10-06 23:42:40 sshd: Failed password for admin from 198.51.100.122 port 41028","2026-10-06 23:42:44 sshd: Failed password for admin from 198.51.100.122 port 41029","2026-10-06 23:42:46 sshd: Accepted password for maya from 10.0.2.30 port 50020","2026-10-06 23:42:48 sshd: Failed password for admin from 198.51.100.122 port 41030","2026-10-06 23:42:50 sshd: Failed password for admin from 198.51.100.122 port 41031","2026-10-06 23:42:52 sshd: Failed password for admin from 198.51.100.122 port 41032","2026-10-06 23:42:55 sshd: Failed password for admin from 198.51.100.122 port 41033","2026-10-06 23:42:59 sshd: Failed password for admin from 198.51.100.122 port 41034","2026-10-06 23:43:03 sshd: Failed password for admin from 198.51.100.122 port 41035","2026-10-06 23:43:07 sshd: Failed password for admin from 198.51.100.122 port 41036","2026-10-06 23:43:09 sshd: Failed password for admin from 198.51.100.122 port 41037","2026-10-06 23:43:11 sshd: Failed password for admin from 198.51.100.122 port 41038","2026-10-06 23:43:14 sshd: Failed password for admin from 198.51.100.122 port 41039","2026-10-06 23:43:16 sshd: Failed password for admin from 198.51.100.122 port 41040","2026-10-06 23:43:19 sshd: Failed password for admin from 198.51.100.122 port 41041","2026-10-06 23:43:21 sshd: Failed password for admin from 198.51.100.122 port 41042","2026-10-06 23:43:25 sshd: Failed password for admin from 198.51.100.122 port 41043","2026-10-06 23:43:27 sshd: Failed password for admin from 198.51.100.122 port 41044","2026-10-06 23:43:30 sshd: Failed password for admin from 198.51.100.122 port 41045","2026-10-06 23:43:34 sshd: Failed password for admin from 198.51.100.122 port 41046","2026-10-06 23:43:37 sshd: Accepted password for admin from 198.51.100.122 port 41047","2026-10-06 23:43:39 sshd: Accepted password for principal from 10.0.2.37 port 50021","2026-10-06 23:44:38 sshd: Accepted password for coach from 10.0.2.49 port 50022","2026-10-06 23:45:00 sshd: Accepted password for maya from 10.0.2.35 port 50023","2026-10-06 23:45:30 sshd: Accepted password for jcarter from 10.0.2.26 port 50024","2026-10-06 23:45:41 sshd: Failed password for principal from 10.0.2.35 port 50025","2026-10-06 23:45:45 sshd: Accepted password for principal from 10.0.2.35 port 50025","2026-10-06 23:46:23 sshd: Accepted password for jcarter from 10.0.2.43 port 50026","2026-10-06 23:47:17 sshd: Failed password for maya from 10.0.2.17 port 50027","2026-10-06 23:47:21 sshd: Accepted password for maya from 10.0.2.17 port 50027","2026-10-06 23:47:41 sshd: Accepted password for coach from 10.0.2.20 port 50028","2026-10-06 23:47:56 sshd: Failed password for leo from 10.0.2.51 port 50029","2026-10-06 23:48:00 sshd: Accepted password for leo from 10.0.2.51 port 50029","2026-10-06 23:48:17 sshd: Accepted password for principal from 10.0.2.67 port 50030","2026-10-06 23:48:57 sshd: Accepted password for jcarter from 10.0.2.27 port 50031","2026-10-06 23:49:24 sshd: Accepted password for jcarter from 10.0.2.39 port 50032","2026-10-06 23:50:12 sshd: Accepted password for leo from 10.0.2.25 port 50033","2026-10-06 23:50:22 sshd: Accepted password for maya from 10.0.2.53 port 50034","2026-10-06 23:50:38 sshd: Accepted password for leo from 10.0.2.60 port 50035","2026-10-06 23:51:01 sshd: Failed password for jcarter from 10.0.2.54 port 50036","2026-10-06 23:51:05 sshd: Accepted password for jcarter from 10.0.2.54 port 50036","2026-10-06 23:52:03 sshd: Accepted password for maya from 10.0.2.58 port 50037","2026-10-06 23:52:05 sshd: Failed password for root from 198.51.100.26 port 43000","2026-10-06 23:52:10 sshd: Failed password for root from 198.51.100.26 port 43001","2026-10-06 23:52:15 sshd: Failed password for root from 198.51.100.26 port 43002","2026-10-06 23:52:20 sshd: Failed password for root from 198.51.100.26 port 43003","2026-10-06 23:52:25 sshd: Failed password for root from 198.51.100.26 port 43004","2026-10-06 23:52:30 sshd: Failed password for root from 198.51.100.26 port 43005","2026-10-06 23:52:58 sshd: Accepted password for maya from 10.0.2.30 port 50038","2026-10-06 23:53:12 sshd: Failed password for maya from 10.0.2.60 port 50039","2026-10-06 23:53:16 sshd: Accepted password for maya from 10.0.2.60 port 50039","2026-10-06 23:53:36 sshd: Accepted password for jcarter from 10.0.2.17 port 50040","2026-10-06 23:53:53 sshd: Accepted password for coach from 10.0.2.59 port 50041","2026-10-06 23:54:47 sshd: Accepted password for leo from 10.0.2.48 port 50042","2026-10-06 23:55:30 sshd: Accepted password for leo from 10.0.2.66 port 50043","2026-10-06 23:55:51 sshd: Accepted password for library from 10.0.2.34 port 50044"],nw11:["2026-10-06 01:00:07 ALLOW  TCP   198.51.100.209  10.0.1.10   64156    443","2026-10-06 01:00:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:00:38 ALLOW  TCP   192.0.2.181     10.0.1.10   55827    443","2026-10-06 01:01:13 ALLOW  TCP   192.0.2.181     10.0.1.10   60224    80","2026-10-06 01:01:38 ALLOW  TCP   192.0.2.173     10.0.1.10   60037    80","2026-10-06 01:02:11 ALLOW  TCP   192.0.2.181     10.0.1.10   65062    80","2026-10-06 01:02:33 ALLOW  TCP   198.51.100.209  10.0.1.10   57775    443","2026-10-06 01:03:01 ALLOW  TCP   192.0.2.181     10.0.1.10   52960    443","2026-10-06 01:03:22 ALLOW  TCP   198.51.100.209  10.0.1.10   60615    443","2026-10-06 01:04:00 ALLOW  TCP   192.0.2.22      10.0.1.10   59261    443","2026-10-06 01:04:39 ALLOW  TCP   198.51.100.7    10.0.1.10   62719    443","2026-10-06 01:05:07 ALLOW  TCP   192.0.2.173     10.0.1.10   56028    80","2026-10-06 01:05:21 ALLOW  TCP   192.0.2.181     10.0.1.10   51125    443","2026-10-06 01:05:43 ALLOW  TCP   198.51.100.209  10.0.1.10   57828    80","2026-10-06 01:06:21 ALLOW  TCP   192.0.2.173     10.0.1.10   63118    80","2026-10-06 01:06:52 ALLOW  TCP   198.51.100.209  10.0.1.10   60473    443","2026-10-06 01:07:09 ALLOW  TCP   198.51.100.236  10.0.1.10   49630    80","2026-10-06 01:07:24 ALLOW  TCP   198.51.100.209  10.0.1.10   53932    443","2026-10-06 01:07:39 ALLOW  TCP   198.51.100.65   10.0.1.10   61458    443","2026-10-06 01:07:51 ALLOW  TCP   198.51.100.49   10.0.1.10   50939    80","2026-10-06 01:08:13 ALLOW  TCP   192.0.2.181     10.0.1.10   61146    80","2026-10-06 01:08:44 ALLOW  TCP   198.51.100.7    10.0.1.10   49890    80","2026-10-06 01:09:10 ALLOW  TCP   192.0.2.173     10.0.1.10   63166    443","2026-10-06 01:09:43 ALLOW  TCP   192.0.2.163     10.0.1.10   54025    443","2026-10-06 01:10:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:10:10 ALLOW  TCP   198.51.100.7    10.0.1.10   61588    80","2026-10-06 01:10:26 ALLOW  TCP   198.51.100.49   10.0.1.10   56122    443","2026-10-06 01:10:50 ALLOW  TCP   198.51.100.98   10.0.1.10   50284    443","2026-10-06 01:11:17 ALLOW  TCP   198.51.100.35   10.0.1.10   56547    80","2026-10-06 01:11:40 ALLOW  TCP   192.0.2.173     10.0.1.10   59192    443","2026-10-06 01:12:05 ALLOW  TCP   198.51.100.7    10.0.1.10   63500    443","2026-10-06 01:12:10 ALLOW  TCP   192.0.2.206     10.0.1.10   56933    443","2026-10-06 01:12:40 ALLOW  TCP   192.0.2.173     10.0.1.10   59248    443","2026-10-06 01:13:11 ALLOW  TCP   192.0.2.181     10.0.1.10   49441    443","2026-10-06 01:13:25 ALLOW  TCP   198.51.100.209  10.0.1.10   54646    443","2026-10-06 01:13:55 ALLOW  TCP   198.51.100.54   10.0.1.10   64576    443","2026-10-06 01:14:08 DROP   TCP   192.0.2.40      10.0.1.10   33000    21","2026-10-06 01:14:27 ALLOW  TCP   198.51.100.7    10.0.1.10   61825    443","2026-10-06 01:14:48 ALLOW  TCP   192.0.2.173     10.0.1.10   56835    80","2026-10-06 01:15:09 ALLOW  TCP   192.0.2.40      10.0.1.10   33300    443","2026-10-06 01:15:27 ALLOW  TCP   198.51.100.192  10.0.1.10   58811    443","2026-10-06 01:15:35 ALLOW  TCP   192.0.2.22      10.0.1.10   58153    443","2026-10-06 01:16:04 ALLOW  TCP   198.51.100.41   10.0.1.10   51019    443","2026-10-06 01:16:23 ALLOW  TCP   198.51.100.209  10.0.1.10   54795    443","2026-10-06 01:16:55 ALLOW  TCP   198.51.100.187  10.0.1.10   49808    443","2026-10-06 01:17:28 ALLOW  TCP   198.51.100.88   10.0.1.10   61918    80","2026-10-06 01:18:01 DROP   TCP   198.51.100.237  10.0.1.10   50003    445","2026-10-06 01:18:06 ALLOW  TCP   192.0.2.181     10.0.1.10   59612    443","2026-10-06 01:18:13 ALLOW  TCP   198.51.100.209  10.0.1.10   59359    443","2026-10-06 01:18:25 ALLOW  TCP   192.0.2.173     10.0.1.10   61636    443","2026-10-06 01:18:51 ALLOW  TCP   198.51.100.86   10.0.1.10   63169    443","2026-10-06 01:19:03 ALLOW  TCP   192.0.2.181     10.0.1.10   54453    80","2026-10-06 01:19:23 ALLOW  TCP   198.51.100.7    10.0.1.10   64001    443","2026-10-06 01:19:50 ALLOW  TCP   198.51.100.29   10.0.1.10   60673    443","2026-10-06 01:20:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:20:26 ALLOW  TCP   198.51.100.7    10.0.1.10   63398    443","2026-10-06 01:20:48 ALLOW  TCP   192.0.2.173     10.0.1.10   63491    443","2026-10-06 01:20:59 ALLOW  TCP   192.0.2.173     10.0.1.10   59078    443","2026-10-06 01:21:15 ALLOW  TCP   192.0.2.181     10.0.1.10   57416    443","2026-10-06 01:21:40 ALLOW  TCP   192.0.2.173     10.0.1.10   55582    443","2026-10-06 01:22:10 ALLOW  TCP   198.51.100.209  10.0.1.10   64783    443","2026-10-06 01:22:40 ALLOW  TCP   192.0.2.181     10.0.1.10   58193    80","2026-10-06 01:23:06 ALLOW  TCP   198.51.100.209  10.0.1.10   50478    80","2026-10-06 01:23:29 ALLOW  TCP   198.51.100.209  10.0.1.10   58869    80","2026-10-06 01:23:40 ALLOW  TCP   198.51.100.221  10.0.1.10   55345    443","2026-10-06 01:24:03 ALLOW  TCP   198.51.100.71   10.0.1.10   59679    443","2026-10-06 01:24:15 DROP   TCP   192.0.2.40      10.0.1.10   33007    22","2026-10-06 01:24:31 ALLOW  TCP   198.51.100.7    10.0.1.10   53846    443","2026-10-06 01:24:56 ALLOW  TCP   198.51.100.209  10.0.1.10   62233    443","2026-10-06 01:25:07 ALLOW  TCP   198.51.100.209  10.0.1.10   54238    443","2026-10-06 01:25:30 ALLOW  TCP   198.51.100.71   10.0.1.10   55221    443","2026-10-06 01:25:44 ALLOW  TCP   192.0.2.181     10.0.1.10   60309    443","2026-10-06 01:25:57 ALLOW  TCP   198.51.100.209  10.0.1.10   61070    80","2026-10-06 01:26:02 ALLOW  TCP   198.51.100.209  10.0.1.10   55958    80","2026-10-06 01:26:41 ALLOW  TCP   192.0.2.173     10.0.1.10   62466    443","2026-10-06 01:27:17 ALLOW  TCP   192.0.2.173     10.0.1.10   59552    443","2026-10-06 01:27:31 ALLOW  TCP   192.0.2.160     10.0.1.10   62655    80","2026-10-06 01:27:53 ALLOW  TCP   192.0.2.181     10.0.1.10   52153    443","2026-10-06 01:28:25 ALLOW  TCP   198.51.100.41   10.0.1.10   50657    443","2026-10-06 01:28:34 ALLOW  TCP   198.51.100.137  10.0.1.10   61260    443","2026-10-06 01:29:13 ALLOW  TCP   192.0.2.163     10.0.1.10   56583    443","2026-10-06 01:29:24 ALLOW  TCP   198.51.100.7    10.0.1.10   53763    80","2026-10-06 01:29:54 ALLOW  TCP   192.0.2.181     10.0.1.10   61908    443","2026-10-06 01:29:59 ALLOW  TCP   198.51.100.209  10.0.1.10   56519    80","2026-10-06 01:30:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:30:30 ALLOW  TCP   198.51.100.80   10.0.1.10   49216    443","2026-10-06 01:30:56 ALLOW  TCP   192.0.2.173     10.0.1.10   53966    443","2026-10-06 01:31:13 ALLOW  TCP   192.0.2.181     10.0.1.10   56839    80","2026-10-06 01:31:23 ALLOW  TCP   192.0.2.66      10.0.1.10   54885    80","2026-10-06 01:31:41 ALLOW  TCP   198.51.100.7    10.0.1.10   56838    443","2026-10-06 01:31:57 ALLOW  TCP   198.51.100.185  10.0.1.10   49750    80","2026-10-06 01:32:23 ALLOW  TCP   192.0.2.137     10.0.1.10   54320    80","2026-10-06 01:32:56 ALLOW  TCP   198.51.100.77   10.0.1.10   64988    443","2026-10-06 01:33:18 ALLOW  TCP   192.0.2.238     10.0.1.10   60120    80","2026-10-06 01:33:52 ALLOW  TCP   192.0.2.181     10.0.1.10   53194    80","2026-10-06 01:34:05 ALLOW  TCP   192.0.2.155     10.0.1.10   50751    80","2026-10-06 01:34:42 ALLOW  TCP   192.0.2.59      10.0.1.10   64323    80","2026-10-06 01:35:15 ALLOW  TCP   192.0.2.173     10.0.1.10   50257    443","2026-10-06 01:35:40 DROP   TCP   192.0.2.40      10.0.1.10   33014    23","2026-10-06 01:35:54 ALLOW  TCP   192.0.2.173     10.0.1.10   60091    80","2026-10-06 01:36:31 ALLOW  TCP   192.0.2.117     10.0.1.10   54573    443","2026-10-06 01:36:58 ALLOW  TCP   192.0.2.173     10.0.1.10   49847    80","2026-10-06 01:37:16 ALLOW  TCP   192.0.2.181     10.0.1.10   63160    443","2026-10-06 01:37:47 ALLOW  TCP   198.51.100.196  10.0.1.10   52121    443","2026-10-06 01:38:07 ALLOW  TCP   192.0.2.181     10.0.1.10   59884    443","2026-10-06 01:38:37 ALLOW  TCP   192.0.2.181     10.0.1.10   57382    443","2026-10-06 01:38:58 ALLOW  TCP   198.51.100.170  10.0.1.10   50513    443","2026-10-06 01:39:07 ALLOW  TCP   198.51.100.14   10.0.1.10   53449    80","2026-10-06 01:39:34 ALLOW  TCP   198.51.100.105  10.0.1.10   56333    443","2026-10-06 01:39:53 DROP   TCP   192.0.2.29      10.0.1.10   50000    22","2026-10-06 01:40:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:40:09 ALLOW  TCP   198.51.100.7    10.0.1.10   52433    80","2026-10-06 01:40:16 DROP   TCP   198.51.100.130  10.0.1.10   50005    23","2026-10-06 01:40:44 ALLOW  TCP   192.0.2.181     10.0.1.10   57954    443","2026-10-06 01:40:55 ALLOW  TCP   192.0.2.181     10.0.1.10   57043    443","2026-10-06 01:41:29 ALLOW  TCP   192.0.2.47      10.0.1.10   59706    80","2026-10-06 01:41:53 ALLOW  TCP   192.0.2.181     10.0.1.10   54639    443","2026-10-06 01:42:27 ALLOW  TCP   192.0.2.86      10.0.1.10   55731    80","2026-10-06 01:42:57 DROP   TCP   198.51.100.162  10.0.1.10   50002    3389","2026-10-06 01:43:04 ALLOW  TCP   198.51.100.236  10.0.1.10   60259    443","2026-10-06 01:43:11 ALLOW  TCP   192.0.2.173     10.0.1.10   64847    443","2026-10-06 01:43:22 ALLOW  TCP   198.51.100.209  10.0.1.10   57081    443","2026-10-06 01:43:36 ALLOW  TCP   198.51.100.145  10.0.1.10   64129    443","2026-10-06 01:43:56 ALLOW  TCP   192.0.2.173     10.0.1.10   57124    80","2026-10-06 01:44:13 ALLOW  TCP   198.51.100.7    10.0.1.10   62904    80","2026-10-06 01:44:51 ALLOW  TCP   198.51.100.51   10.0.1.10   65125    443","2026-10-06 01:44:58 DROP   TCP   192.0.2.40      10.0.1.10   33021    25","2026-10-06 01:45:12 ALLOW  TCP   198.51.100.209  10.0.1.10   51938    443","2026-10-06 01:45:46 ALLOW  TCP   198.51.100.75   10.0.1.10   62950    443","2026-10-06 01:45:55 ALLOW  TCP   198.51.100.125  10.0.1.10   57185    80","2026-10-06 01:46:07 ALLOW  TCP   198.51.100.209  10.0.1.10   53561    443","2026-10-06 01:46:46 ALLOW  TCP   198.51.100.198  10.0.1.10   50657    443","2026-10-06 01:46:51 ALLOW  TCP   192.0.2.181     10.0.1.10   56555    80","2026-10-06 01:47:02 ALLOW  TCP   192.0.2.173     10.0.1.10   56780    443","2026-10-06 01:47:40 ALLOW  TCP   198.51.100.7    10.0.1.10   53913    443","2026-10-06 01:47:57 ALLOW  TCP   192.0.2.173     10.0.1.10   51111    80","2026-10-06 01:48:11 ALLOW  TCP   192.0.2.64      10.0.1.10   57789    443","2026-10-06 01:48:37 ALLOW  TCP   192.0.2.75      10.0.1.10   59913    443","2026-10-06 01:49:02 ALLOW  TCP   198.51.100.196  10.0.1.10   63408    443","2026-10-06 01:49:41 ALLOW  TCP   198.51.100.209  10.0.1.10   62389    80","2026-10-06 01:50:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 01:50:20 ALLOW  TCP   198.51.100.7    10.0.1.10   53536    443","2026-10-06 01:50:24 ALLOW  TCP   192.0.2.173     10.0.1.10   57987    443","2026-10-06 01:50:36 ALLOW  TCP   198.51.100.87   10.0.1.10   59978    80","2026-10-06 01:50:43 ALLOW  TCP   192.0.2.173     10.0.1.10   55950    443","2026-10-06 01:51:12 ALLOW  TCP   192.0.2.181     10.0.1.10   63978    443","2026-10-06 01:51:51 ALLOW  TCP   198.51.100.7    10.0.1.10   57144    443","2026-10-06 01:52:30 ALLOW  TCP   198.51.100.120  10.0.1.10   60304    80","2026-10-06 01:52:37 ALLOW  TCP   198.51.100.7    10.0.1.10   58163    80","2026-10-06 01:53:07 ALLOW  TCP   192.0.2.173     10.0.1.10   52166    443","2026-10-06 01:53:11 ALLOW  TCP   198.51.100.189  10.0.1.10   52649    443","2026-10-06 01:53:21 ALLOW  TCP   198.51.100.209  10.0.1.10   57995    443","2026-10-06 01:53:56 ALLOW  TCP   198.51.100.136  10.0.1.10   49238    443","2026-10-06 01:54:29 ALLOW  TCP   192.0.2.173     10.0.1.10   62384    443","2026-10-06 01:54:59 ALLOW  TCP   198.51.100.44   10.0.1.10   59979    80","2026-10-06 01:54:59 DROP   TCP   192.0.2.40      10.0.1.10   33028    110","2026-10-06 01:55:15 ALLOW  TCP   198.51.100.95   10.0.1.10   59627    443","2026-10-06 01:55:51 ALLOW  TCP   192.0.2.181     10.0.1.10   64720    80","2026-10-06 01:55:58 ALLOW  TCP   198.51.100.124  10.0.1.10   53139    80","2026-10-06 01:56:00 ALLOW  TCP   192.0.2.40      10.0.1.10   33304    443","2026-10-06 01:56:09 ALLOW  TCP   198.51.100.209  10.0.1.10   54186    443","2026-10-06 01:56:47 ALLOW  TCP   192.0.2.181     10.0.1.10   49937    443","2026-10-06 01:57:14 ALLOW  TCP   192.0.2.124     10.0.1.10   55269    80","2026-10-06 01:57:21 ALLOW  TCP   192.0.2.10      10.0.1.10   60636    443","2026-10-06 01:57:48 ALLOW  TCP   198.51.100.28   10.0.1.10   49514    443","2026-10-06 01:58:15 ALLOW  TCP   192.0.2.173     10.0.1.10   57929    80","2026-10-06 01:58:32 ALLOW  TCP   198.51.100.214  10.0.1.10   60841    443","2026-10-06 01:58:56 ALLOW  TCP   198.51.100.7    10.0.1.10   49301    443","2026-10-06 01:59:31 ALLOW  TCP   192.0.2.125     10.0.1.10   64691    80","2026-10-06 01:59:54 ALLOW  TCP   192.0.2.66      10.0.1.10   57836    443","2026-10-06 02:00:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:00:08 ALLOW  TCP   192.0.2.183     10.0.1.10   54943    80","2026-10-06 02:00:29 ALLOW  TCP   192.0.2.216     10.0.1.10   57010    80","2026-10-06 02:01:02 ALLOW  TCP   192.0.2.140     10.0.1.10   53999    443","2026-10-06 02:01:09 ALLOW  TCP   192.0.2.173     10.0.1.10   64838    443","2026-10-06 02:01:14 ALLOW  TCP   198.51.100.7    10.0.1.10   59662    443","2026-10-06 02:01:19 ALLOW  TCP   198.51.100.209  10.0.1.10   56936    80","2026-10-06 02:01:54 ALLOW  TCP   198.51.100.97   10.0.1.10   51601    443","2026-10-06 02:02:23 ALLOW  TCP   192.0.2.217     10.0.1.10   64800    443","2026-10-06 02:02:36 ALLOW  TCP   198.51.100.98   10.0.1.10   58514    443","2026-10-06 02:02:46 ALLOW  TCP   198.51.100.165  10.0.1.10   51962    80","2026-10-06 02:03:12 ALLOW  TCP   198.51.100.10   10.0.1.10   62696    443","2026-10-06 02:03:17 ALLOW  TCP   192.0.2.181     10.0.1.10   50887    443","2026-10-06 02:03:42 ALLOW  TCP   198.51.100.36   10.0.1.10   54057    80","2026-10-06 02:04:05 ALLOW  TCP   192.0.2.173     10.0.1.10   50652    443","2026-10-06 02:04:17 ALLOW  TCP   198.51.100.209  10.0.1.10   62479    80","2026-10-06 02:04:45 ALLOW  TCP   198.51.100.209  10.0.1.10   55417    80","2026-10-06 02:04:49 ALLOW  TCP   198.51.100.7    10.0.1.10   64971    80","2026-10-06 02:05:19 ALLOW  TCP   192.0.2.89      10.0.1.10   61137    443","2026-10-06 02:05:44 ALLOW  TCP   192.0.2.12      10.0.1.10   50403    80","2026-10-06 02:06:21 ALLOW  TCP   192.0.2.173     10.0.1.10   56102    443","2026-10-06 02:06:52 ALLOW  TCP   192.0.2.173     10.0.1.10   64563    443","2026-10-06 02:07:08 DROP   TCP   192.0.2.40      10.0.1.10   33035    139","2026-10-06 02:07:23 ALLOW  TCP   198.51.100.223  10.0.1.10   56711    80","2026-10-06 02:07:57 ALLOW  TCP   198.51.100.7    10.0.1.10   63307    443","2026-10-06 02:08:10 ALLOW  TCP   198.51.100.7    10.0.1.10   55367    443","2026-10-06 02:08:48 ALLOW  TCP   198.51.100.7    10.0.1.10   61962    443","2026-10-06 02:09:10 ALLOW  TCP   198.51.100.226  10.0.1.10   50890    80","2026-10-06 02:09:39 ALLOW  TCP   192.0.2.181     10.0.1.10   55870    443","2026-10-06 02:10:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:10:11 ALLOW  TCP   198.51.100.209  10.0.1.10   64145    443","2026-10-06 02:10:42 ALLOW  TCP   192.0.2.181     10.0.1.10   62029    80","2026-10-06 02:10:58 ALLOW  TCP   192.0.2.173     10.0.1.10   58713    80","2026-10-06 02:11:06 ALLOW  TCP   198.51.100.209  10.0.1.10   63416    443","2026-10-06 02:11:20 ALLOW  TCP   192.0.2.145     10.0.1.10   49173    443","2026-10-06 02:11:24 ALLOW  TCP   192.0.2.173     10.0.1.10   55737    443","2026-10-06 02:11:37 ALLOW  TCP   198.51.100.59   10.0.1.10   62905    443","2026-10-06 02:11:42 ALLOW  TCP   192.0.2.181     10.0.1.10   52998    443","2026-10-06 02:12:14 ALLOW  TCP   198.51.100.219  10.0.1.10   63681    80","2026-10-06 02:12:49 ALLOW  TCP   192.0.2.165     10.0.1.10   61736    443","2026-10-06 02:13:07 ALLOW  TCP   198.51.100.16   10.0.1.10   61796    443","2026-10-06 02:13:33 ALLOW  TCP   198.51.100.7    10.0.1.10   49898    443","2026-10-06 02:13:51 DROP   TCP   198.51.100.156  10.0.1.10   50009    23","2026-10-06 02:13:55 ALLOW  TCP   198.51.100.10   10.0.1.10   59815    443","2026-10-06 02:14:23 ALLOW  TCP   198.51.100.209  10.0.1.10   54906    443","2026-10-06 02:14:42 ALLOW  TCP   198.51.100.209  10.0.1.10   50627    443","2026-10-06 02:14:50 ALLOW  TCP   192.0.2.181     10.0.1.10   59826    80","2026-10-06 02:15:16 ALLOW  TCP   192.0.2.49      10.0.1.10   64465    443","2026-10-06 02:15:40 ALLOW  TCP   198.51.100.72   10.0.1.10   64623    443","2026-10-06 02:15:53 ALLOW  TCP   192.0.2.8       10.0.1.10   51159    80","2026-10-06 02:16:00 ALLOW  TCP   192.0.2.181     10.0.1.10   49251    443","2026-10-06 02:16:31 ALLOW  TCP   192.0.2.224     10.0.1.10   50034    443","2026-10-06 02:16:35 ALLOW  TCP   198.51.100.7    10.0.1.10   63986    443","2026-10-06 02:16:55 ALLOW  TCP   198.51.100.7    10.0.1.10   57664    443","2026-10-06 02:17:24 ALLOW  TCP   192.0.2.181     10.0.1.10   62074    443","2026-10-06 02:17:40 ALLOW  TCP   192.0.2.173     10.0.1.10   62896    443","2026-10-06 02:18:06 ALLOW  TCP   192.0.2.173     10.0.1.10   61822    80","2026-10-06 02:18:10 ALLOW  TCP   198.51.100.227  10.0.1.10   58796    443","2026-10-06 02:18:20 ALLOW  TCP   198.51.100.235  10.0.1.10   55278    80","2026-10-06 02:18:38 ALLOW  TCP   192.0.2.25      10.0.1.10   63642    443","2026-10-06 02:18:56 ALLOW  TCP   198.51.100.209  10.0.1.10   57242    80","2026-10-06 02:19:29 ALLOW  TCP   192.0.2.211     10.0.1.10   58545    443","2026-10-06 02:20:03 DROP   TCP   192.0.2.40      10.0.1.10   33042    445","2026-10-06 02:20:06 ALLOW  TCP   192.0.2.173     10.0.1.10   63589    443","2026-10-06 02:20:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:20:20 ALLOW  TCP   192.0.2.181     10.0.1.10   62728    80","2026-10-06 02:20:45 ALLOW  TCP   192.0.2.181     10.0.1.10   53535    443","2026-10-06 02:20:51 ALLOW  TCP   192.0.2.181     10.0.1.10   54252    80","2026-10-06 02:21:20 ALLOW  TCP   198.51.100.120  10.0.1.10   61448    443","2026-10-06 02:21:44 ALLOW  TCP   192.0.2.181     10.0.1.10   56326    80","2026-10-06 02:22:06 ALLOW  TCP   198.51.100.238  10.0.1.10   49742    443","2026-10-06 02:22:17 ALLOW  TCP   192.0.2.181     10.0.1.10   53037    80","2026-10-06 02:22:55 ALLOW  TCP   198.51.100.7    10.0.1.10   53523    443","2026-10-06 02:23:09 ALLOW  TCP   198.51.100.7    10.0.1.10   63126    443","2026-10-06 02:23:24 ALLOW  TCP   192.0.2.173     10.0.1.10   61171    443","2026-10-06 02:23:32 ALLOW  TCP   192.0.2.224     10.0.1.10   53702    80","2026-10-06 02:23:41 ALLOW  TCP   192.0.2.17      10.0.1.10   62866    80","2026-10-06 02:24:09 ALLOW  TCP   192.0.2.143     10.0.1.10   56065    443","2026-10-06 02:24:35 ALLOW  TCP   198.51.100.201  10.0.1.10   60663    443","2026-10-06 02:24:40 DROP   TCP   192.0.2.128     10.0.1.10   50007    445","2026-10-06 02:25:06 ALLOW  TCP   192.0.2.30      10.0.1.10   63179    80","2026-10-06 02:25:35 ALLOW  TCP   192.0.2.177     10.0.1.10   57563    443","2026-10-06 02:25:46 ALLOW  TCP   192.0.2.181     10.0.1.10   61785    80","2026-10-06 02:26:03 ALLOW  TCP   192.0.2.135     10.0.1.10   54088    443","2026-10-06 02:26:24 ALLOW  TCP   192.0.2.231     10.0.1.10   51989    443","2026-10-06 02:27:01 ALLOW  TCP   198.51.100.209  10.0.1.10   55549    443","2026-10-06 02:27:31 ALLOW  TCP   198.51.100.7    10.0.1.10   52015    443","2026-10-06 02:28:08 ALLOW  TCP   192.0.2.193     10.0.1.10   53774    443","2026-10-06 02:28:37 ALLOW  TCP   192.0.2.181     10.0.1.10   62969    443","2026-10-06 02:29:11 ALLOW  TCP   198.51.100.137  10.0.1.10   59026    443","2026-10-06 02:29:15 DROP   TCP   192.0.2.40      10.0.1.10   33049    1433","2026-10-06 02:29:29 ALLOW  TCP   198.51.100.7    10.0.1.10   58860    80","2026-10-06 02:30:01 ALLOW  TCP   192.0.2.110     10.0.1.10   57618    80","2026-10-06 02:30:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:30:36 ALLOW  TCP   192.0.2.181     10.0.1.10   62280    443","2026-10-06 02:30:54 DROP   TCP   198.51.100.211  10.0.1.10   50001    23","2026-10-06 02:31:07 ALLOW  TCP   198.51.100.209  10.0.1.10   57689    80","2026-10-06 02:31:30 ALLOW  TCP   192.0.2.181     10.0.1.10   52340    443","2026-10-06 02:31:55 ALLOW  TCP   198.51.100.51   10.0.1.10   58180    80","2026-10-06 02:32:19 ALLOW  TCP   198.51.100.185  10.0.1.10   56688    443","2026-10-06 02:32:23 ALLOW  TCP   192.0.2.211     10.0.1.10   51999    443","2026-10-06 02:33:01 ALLOW  TCP   192.0.2.173     10.0.1.10   63238    443","2026-10-06 02:33:38 ALLOW  TCP   198.51.100.222  10.0.1.10   61007    443","2026-10-06 02:33:52 ALLOW  TCP   198.51.100.50   10.0.1.10   52624    80","2026-10-06 02:34:23 ALLOW  TCP   198.51.100.7    10.0.1.10   55200    443","2026-10-06 02:34:40 ALLOW  TCP   198.51.100.7    10.0.1.10   62909    80","2026-10-06 02:35:17 ALLOW  TCP   198.51.100.7    10.0.1.10   52258    443","2026-10-06 02:35:56 ALLOW  TCP   192.0.2.188     10.0.1.10   63734    443","2026-10-06 02:36:30 ALLOW  TCP   198.51.100.7    10.0.1.10   56935    443","2026-10-06 02:36:51 ALLOW  TCP   192.0.2.181     10.0.1.10   51180    443","2026-10-06 02:37:02 ALLOW  TCP   198.51.100.209  10.0.1.10   58277    80","2026-10-06 02:37:41 ALLOW  TCP   198.51.100.209  10.0.1.10   60554    443","2026-10-06 02:38:01 ALLOW  TCP   192.0.2.212     10.0.1.10   52004    80","2026-10-06 02:38:35 ALLOW  TCP   192.0.2.54      10.0.1.10   64769    443","2026-10-06 02:38:41 ALLOW  TCP   192.0.2.116     10.0.1.10   54977    443","2026-10-06 02:38:55 ALLOW  TCP   198.51.100.10   10.0.1.10   55151    80","2026-10-06 02:39:21 ALLOW  TCP   198.51.100.216  10.0.1.10   63114    443","2026-10-06 02:39:52 DROP   TCP   192.0.2.40      10.0.1.10   33056    3306","2026-10-06 02:40:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:40:53 ALLOW  TCP   192.0.2.40      10.0.1.10   33308    443","2026-10-06 02:50:01 DROP   TCP   192.0.2.40      10.0.1.10   33063    3389","2026-10-06 02:50:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 02:55:36 DROP   TCP   192.0.2.184     10.0.1.10   50004    22","2026-10-06 03:00:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 03:01:28 DROP   TCP   192.0.2.40      10.0.1.10   33070    5432","2026-10-06 03:10:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 03:13:11 DROP   TCP   192.0.2.40      10.0.1.10   33077    5900","2026-10-06 03:20:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 03:25:50 DROP   TCP   192.0.2.40      10.0.1.10   33084    6379","2026-10-06 03:26:51 ALLOW  TCP   192.0.2.40      10.0.1.10   33312    443","2026-10-06 03:30:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 03:36:45 DROP   TCP   192.0.2.118     10.0.1.10   50008    22","2026-10-06 03:38:14 DROP   TCP   192.0.2.40      10.0.1.10   33091    8080","2026-10-06 03:39:50 DROP   TCP   192.0.2.49      10.0.1.10   50006    3389","2026-10-06 03:40:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -","2026-10-06 03:50:07 ALLOW  ICMP  10.0.5.9        10.0.1.10   -        -"]};var M0=[["10.0.1.10","Web server (websites on 80 and 443)"],["10.0.1.53","DNS server (name lookups, UDP 53)"],["10.0.1.0/24","All servers. Same as $HOME_NET"],["10.0.5.0/24","Admin laptops (IT staff)"],["10.0.2.0/24","Student laptops"],["10.0.0.0/8","Everything inside Byteville"],["203.0.113.0/24",'The "bad neighborhood" (known attackers)']],W=(e,t,s,o,n,r,i="new")=>({label:e,proto:t,src:s,dst:o,port:n,want:r,state:i}),J=(e,t,s,o="10.0.1.10",n=80,r="198.51.100.40")=>({label:e,proto:"tcp",src:r,dst:o,port:n,payload:t,want:s}),le=[{id:"nw1",num:1,kind:"rules",title:"Lights Out",skill:"Default deny",story:"It is 10 PM. The night firewall has only one rule, and this firewall lets through anything that no rule matches.",task:"Only secure web traffic (TCP 443) may reach the web server. Everything else must be blocked. Edit the rules, then press Run.",starter:`# Allow secure web traffic to the web server
+allow tcp any -> 10.0.1.10 443
+`,hints:['Run it first. Which packets got through that should not? The "rule" column says no rule matched them.',"Add a last line that catches everything:  block any any -> any any"],packets:[W("Visitor opens the website","tcp","198.51.100.7","10.0.1.10",443,"allow"),W("Another visitor opens the website","tcp","192.0.2.30","10.0.1.10",443,"allow"),W("Stranger tries remote login","tcp","198.51.100.7","10.0.1.10",22,"block"),W("Stranger tries remote desktop","tcp","192.0.2.99","10.0.1.10",3389,"block"),W("Stranger pings the server","icmp","198.51.100.9","10.0.1.10",0,"block"),W("Stranger reaches for a database","tcp","192.0.2.8","10.0.1.20",3306,"block")]},{id:"nw2",num:2,kind:"rules",title:"Two Doors and a Phone Book",skill:"Ports and protocols",maxRules:4,story:"The web server needs both of its doors (80 and 443). The DNS server answers name lookups on UDP port 53.",task:"Allow TCP 80 and 443 to the web server and UDP 53 to the DNS server. Block everything else. Use 4 rules or fewer.",starter:`# Write your rules here. One rule per line.
+`,hints:["One rule can list two ports with a comma:  allow tcp any -> 10.0.1.10 80,443","DNS uses udp, not tcp. Then finish with  block any any -> any any"],packets:[W("Visitor opens the website (HTTP)","tcp","198.51.100.7","10.0.1.10",80,"allow"),W("Visitor opens the website (HTTPS)","tcp","198.51.100.7","10.0.1.10",443,"allow"),W("Laptop looks up a name","udp","10.0.2.15","10.0.1.53",53,"allow"),W("Name lookup sent to the web server by mistake","udp","10.0.2.15","10.0.1.10",53,"block"),W("TCP to the DNS server on port 53","tcp","192.0.2.44","10.0.1.53",53,"block"),W("Website request sent to the DNS server","tcp","198.51.100.7","10.0.1.53",80,"block"),W("Stranger tries remote login on the DNS server","tcp","192.0.2.99","10.0.1.53",22,"block"),W("HTTPS to a different server","tcp","198.51.100.7","10.0.1.11",443,"block")]},{id:"nw3",num:3,kind:"log",title:"Knock Knock",skill:"Reading a firewall log",story:"Around 10:17 PM someone tried a lot of doors on the web server in just a few seconds. That is a port scan.",task:"Find the IP address that scanned the server. Tip: type DROP in the filter box.",question:"Which IP address scanned the server?",placeholder:"e.g. 192.0.2.1",header:Ue,log:$e.nw3,hints:["Filter for DROP. A few addresses were dropped once. One was dropped many times.","Look for one IP hitting many different ports within the same few seconds."]},{id:"nw4",num:4,kind:"log",title:"The Open Door",skill:"Finding a mistake in the rules",story:"Another scan, at 11:09 PM. This time one of the doors it tried was open, because someone forgot an old rule.",task:"Find the port the scanner reached that is NOT a normal website port.",question:"Which port did the scanner find open?",placeholder:"a port number",header:Ue,log:$e.nw4,hints:["First find the scanner's IP (filter for DROP). Then filter for that IP.","Among the scanner's lines, look for ALLOW. Ignore 443, which is the normal website."]},{id:"nw5",num:5,kind:"rules",title:"Bad Neighborhood",skill:"Rule order and exceptions",story:"All of 203.0.113.0/24 is known trouble, so the whole block is banned. But one partner company, 203.0.113.50, needs to reach the website.",task:"The rules are right, but in the wrong order. Fix the order so every test passes.",starter:`block any 203.0.113.0/24 -> any any
+allow tcp any -> 10.0.1.10 443
+allow tcp 203.0.113.50 -> 10.0.1.10 443
+block any any -> any any
+`,hints:["First match wins. Which rule catches the partner before the partner rule is ever read?","Move the partner rule to the very top. An exception always goes above the rule it is an exception to."],packets:[W("Partner opens the website","tcp","203.0.113.50","10.0.1.10",443,"allow"),W("Partner tries remote login","tcp","203.0.113.50","10.0.1.10",22,"block"),W("Bad neighbor opens the website","tcp","203.0.113.66","10.0.1.10",443,"block"),W("Bad neighbor tries HTTP","tcp","203.0.113.9","10.0.1.10",80,"block"),W("Normal visitor opens the website","tcp","198.51.100.7","10.0.1.10",443,"allow"),W("Normal visitor tries remote login","tcp","198.51.100.7","10.0.1.10",22,"block")]},{id:"nw6",num:6,kind:"rules",title:"Admins Only",skill:"Least privilege with address blocks",maxRules:4,story:"Remote login (SSH, port 22) is how IT fixes servers. Only the admin laptops in 10.0.5.0/24 should ever use it.",task:"Anyone may open the website (443 on 10.0.1.10). Admin laptops may SSH to any server in 10.0.1.0/24. Block everything else. 4 rules or fewer.",starter:`# Write your rules here.
+`,hints:["Address blocks work as source or destination:  allow tcp 10.0.5.0/24 -> 10.0.1.0/24 22","Three rules are enough: the website rule, the admin SSH rule, and block any any -> any any"],packets:[W("Admin fixes the web server","tcp","10.0.5.20","10.0.1.10",22,"allow"),W("Admin fixes the DNS server","tcp","10.0.5.31","10.0.1.53",22,"allow"),W("Student tries SSH to the web server","tcp","10.0.2.15","10.0.1.10",22,"block"),W("Stranger tries SSH from the Internet","tcp","192.0.2.99","10.0.1.10",22,"block"),W("Admin tries remote desktop","tcp","10.0.5.20","10.0.1.10",3389,"block"),W("Admin SSH to a student laptop","tcp","10.0.5.20","10.0.2.15",22,"block"),W("Visitor opens the website","tcp","198.51.100.7","10.0.1.10",443,"allow"),W("Student opens the website","tcp","10.0.2.15","10.0.1.10",443,"allow")]},{id:"nw7",num:7,kind:"log",title:"Count the Guesses",skill:"Spotting password guessing",story:"This is the login log for the servers. Students mistype passwords sometimes. But one address kept guessing the admin password until it got in.",task:"Count how many times the attacker failed before the successful login.",question:"How many failed logins did the attacker make before getting in?",placeholder:"a number",header:"date       time     message",log:$e.nw7,hints:['Filter for "Accepted password for admin". Which IP got in?','Now filter for that IP and count the "Failed" lines. The counter under the log helps.']},{id:"nw8",num:8,kind:"rules",title:"Remember Me",skill:"Stateful filtering",maxRules:4,story:"Student laptops (10.0.2.0/24) should browse the web. Replies to their requests must come back in. Nobody outside may start a new connection to a laptop.",task:"Let laptops start web connections out (TCP 80, 443). Let replies come back in. Block everything else. Add the word established to the end of a rule to match only replies.",starter:`# Example of the new word:
+# allow tcp any -> 10.0.2.0/24 any established
+`,hints:["Replies come back to a random high port on the laptop, so the reply rule uses port any plus established.","Three rules: laptops out on 80,443; replies in with established; then block any any -> any any"],packets:[W("Laptop opens a website (HTTPS)","tcp","10.0.2.15","198.51.100.25",443,"allow"),W("Laptop opens a website (HTTP)","tcp","10.0.2.40","198.51.100.25",80,"allow"),W("The website replies to the laptop","tcp","198.51.100.25","10.0.2.15",51544,"allow","est"),W("Stranger tries file sharing on a laptop","tcp","192.0.2.99","10.0.2.15",445,"block"),W("Stranger tries remote desktop on a laptop","tcp","192.0.2.99","10.0.2.40",3389,"block"),W('Fake "reply" with no conversation in the table',"tcp","198.51.100.88","10.0.2.15",51544,"block"),W("Laptop connects to a chat port used by botnets","tcp","10.0.2.15","192.0.2.50",6667,"block"),W("Stranger pings a laptop","icmp","192.0.2.99","10.0.2.15",0,"block")]},{id:"nw9",num:9,kind:"detect",title:"First Alert",skill:"Writing a detection rule",story:"The IDS watches web traffic to the servers. Someone wrote a rule for SQL injection, but attackers change upper and lower case to slip past it.",task:"Make the rule alert on every SQL injection attempt and stay quiet on normal searches.",starter:`alert tcp any any -> $HOME_NET 80 (msg:"SQL injection"; content:"OR 1=1"; sid:1000001;)
+`,hints:["Run it. Which attacks were missed? Look at the letters: OR, or, Or.","Add  nocase;  right after the content so upper and lower case both match."],events:[J("Classic injection","GET /search?q=' OR 1=1 --","alert"),J("Lower-case injection","GET /login?user=admin' or 1=1--","alert"),J("Mixed-case injection","POST /login user=admin' Or 1=1 #","alert"),J("Normal search","GET /search?q=library hours","quiet"),J('Normal search with "or"',"GET /search?q=1 or 2 day field trip","quiet"),J("Normal page","GET /courses/cybr2000","quiet")]},{id:"nw10",num:10,kind:"detect",title:"Too Much Noise",skill:"Tuning false positives",story:'The IDS team is drowning in alerts. This rule fires on anything that says "script", including the drama club and the coding class.',task:"Tune the rule: catch every script attack, and zero false alarms.",starter:`alert tcp any any -> $HOME_NET 80 (msg:"Script attack"; content:"script"; nocase; sid:1000002;)
+`,hints:["What do all the real attacks have that the normal pages do not? Look right before the word.",'Change the content to "<script" and keep nocase.'],events:[J("Attack in a comment","POST /comment text=<script>steal(cookie)<\/script>","alert"),J("Attack in capitals","GET /search?q=<SCRIPT SRC=//evil.example/x.js>","alert"),J("Attack in mixed case","POST /profile bio=<ScRiPt>alert(1)<\/ScRiPt>","alert"),J("Drama club script","GET /drama/script-for-the-play.pdf","quiet"),J("Coding class page","GET /cs/javascript-basics.html","quiet"),J("Movie search","GET /search?q=movie script ideas","quiet"),J("Python lesson","GET /cs/python-script-homework.py","quiet")]},{id:"nw11",num:11,kind:"log",title:"Low and Slow",skill:"Finding a hidden pattern",story:"Three hours of overnight traffic. A careful attacker is scanning one port every ten minutes so nobody notices. Busy normal visitors make far more noise.",task:"Find the slow scanner. Counting lines will fool you. Count different ports instead.",question:"Which IP address is scanning slowly?",placeholder:"e.g. 192.0.2.1",header:Ue,log:$e.nw11,hints:["Filter for DROP. Most dropped addresses appear once. One keeps coming back.","The scanner also visits port 443 now and then to look normal. Which IP has DROP lines on many different ports?"]},{id:"nw12",num:12,kind:"rules",title:"Night Shift",skill:"The whole firewall",maxRules:7,story:"The night shift chief has called in sick. You write the whole firewall for Byteville tonight.",task:"In 7 rules or fewer: (1) nothing at all from 203.0.113.0/24. (2) Anyone may reach the web server on 80 and 443. (3) Anything inside Byteville (10.0.0.0/8) may use DNS: UDP 53 to 10.0.1.53. (4) SSH to servers only from admin laptops. (5) Student laptops may start web connections out on 80 and 443. (6) Replies may come back to student laptops. (7) Block everything else.",starter:`# Your firewall. 7 rules or fewer.
+`,hints:['Put the bad neighborhood rule first. Otherwise a "reply" from that neighborhood would be let in by your replies rule.',"One rule per requirement, in the same order as the list, works."],packets:[W("Visitor opens the website (HTTPS)","tcp","198.51.100.7","10.0.1.10",443,"allow"),W("Visitor opens the website (HTTP)","tcp","192.0.2.30","10.0.1.10",80,"allow"),W("Bad neighbor opens the website","tcp","203.0.113.66","10.0.1.10",443,"block"),W("Student laptop looks up a name","udp","10.0.2.15","10.0.1.53",53,"allow"),W("Outsider uses our DNS server","udp","198.51.100.7","10.0.1.53",53,"block"),W("Admin SSH to the DNS server","tcp","10.0.5.20","10.0.1.53",22,"allow"),W("Student tries SSH to the web server","tcp","10.0.2.15","10.0.1.10",22,"block"),W("Outsider tries SSH","tcp","192.0.2.99","10.0.1.10",22,"block"),W("Laptop opens a website","tcp","10.0.2.15","198.51.100.25",443,"allow"),W("Website replies to the laptop","tcp","198.51.100.25","10.0.2.15",51544,"allow","est"),W("Outsider tries file sharing on a laptop","tcp","192.0.2.99","10.0.2.15",445,"block"),W('"Reply" from the bad neighborhood',"tcp","203.0.113.9","10.0.2.15",51544,"block","est"),W("Laptop sends email straight out (spam bot)","tcp","10.0.2.15","198.51.100.25",25,"block"),W("Outsider pings the web server","icmp","198.51.100.9","10.0.1.10",0,"block"),W("Admin tries remote desktop","tcp","10.0.5.20","10.0.1.10",3389,"block"),W("Laptop SSH to the Internet","tcp","10.0.2.15","198.51.100.25",22,"block")]}],xe=e=>40+e*10;var ot="10.0.1.0/24";function e0(e){let t=e.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);if(!t)return null;let s=t.slice(1).map(Number);return s.some(o=>o>255)?null:(s[0]<<24>>>0)+(s[1]<<16)+(s[2]<<8)+s[3]}function be(e){if(e==="any"||e==="$home_net")return!0;let[t,s]=e.split("/");if(e0(t)===null)return!1;if(s===void 0)return!0;let o=Number(s);return/^\d+$/.test(s)&&o>=0&&o<=32}function Me(e,t){if(e==="any")return!0;e==="$home_net"&&(e=ot);let[s,o]=e.split("/"),n=e0(s),r=e0(t);if(n===null||r===null)return!1;if(o===void 0)return n===r;let i=Number(o);if(i===0)return!0;let c=4294967295<<32-i>>>0;return(n&c)>>>0===(r&c)>>>0}function t0(e){if(e==="any")return"any";let t=e.split(",").map(s=>s.trim());return t.some(s=>!/^\d+$/.test(s)||Number(s)>65535)?null:t.map(Number)}var E0={allow:"allow",accept:"allow",pass:"allow",block:"block",deny:"block",drop:"block"};function R0(e){let t=[],s=[];return e.split(`
+`).forEach((o,n)=>{let r=o.replace(/#.*$/,"").trim();if(!r)return;let i=r.toLowerCase().split(/\s+/),c=`Line ${n+1}`;if(i.length<6||i.length>7){s.push(`${c}: expected 6 parts, like  allow tcp any -> 10.0.1.10 443`);return}let[u,w,O,T,v,N,A]=i;if(!E0[u]){s.push(`${c}: start with allow or block, not "${u}".`);return}if(!["tcp","udp","icmp","any"].includes(w)){s.push(`${c}: protocol must be tcp, udp, icmp, or any.`);return}if(T!=="->"){s.push(`${c}: put  ->  between the source and the destination.`);return}if(!be(O)){s.push(`${c}: "${O}" is not a valid source. Use any, an IP, or a block like 10.0.2.0/24.`);return}if(!be(v)){s.push(`${c}: "${v}" is not a valid destination.`);return}let S=t0(N);if(S===null){s.push(`${c}: "${N}" is not a valid port. Use any, 443, or 80,443.`);return}if(A!==void 0&&A!=="established"){s.push(`${c}: the only word allowed at the end is "established".`);return}t.push({line:n+1,text:r,action:E0[u],proto:w,src:O,dst:v,ports:S,established:A==="established"})}),{rules:t,errors:s}}function rt(e,t){return!(e.proto!=="any"&&e.proto!==t.proto||!Me(e.src,t.src)||!Me(e.dst,t.dst)||e.ports!=="any"&&(t.proto==="icmp"||!e.ports.includes(t.port))||e.established&&t.state!=="est")}function N0(e,t){for(let s=0;s<e.length;s++)if(rt(e[s],t))return{got:e[s].action,by:s};return{got:"allow",by:-1}}function I0(e){let t=[],s=[];return e.split(`
+`).forEach((o,n)=>{let r=o.trim();if(!r||r.startsWith("#"))return;let i=`Line ${n+1}`,c=r.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*\((.*)\)\s*$/);if(!c){s.push(`${i}: expected  alert tcp any any -> $HOME_NET 80 (content:"..."; )`);return}let[,u,w,O,T,v,N,A,S]=c;if(u.toLowerCase()!=="alert"){s.push(`${i}: detection rules start with alert.`);return}let D=w.toLowerCase();if(!["tcp","udp","icmp","ip"].includes(D)){s.push(`${i}: protocol must be tcp, udp, icmp, or ip.`);return}if(v!=="->"){s.push(`${i}: put  ->  between source and destination.`);return}if(!be(O.toLowerCase())||!be(N.toLowerCase())){s.push(`${i}: check the addresses. Use any, an IP, a block like 10.0.1.0/24, or $HOME_NET.`);return}let B=t0(T.toLowerCase()),q=t0(A.toLowerCase());if(B===null||q===null){s.push(`${i}: ports must be any, a number, or a list like 80,443.`);return}let _=[],x="",I=/\s*([a-z_]+)\s*(?::\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*)))?\s*;/gi,F=S.trim().endsWith(";")?S:S+";",L,M=0;for(;L=I.exec(F);){M+=L[0].length;let b=L[1].toLowerCase();if(b==="content"){if(L[2]===void 0){s.push(`${i}: content needs quotes, like content:"OR 1=1";`);return}_.push({text:L[2].replace(/\\(.)/g,"$1"),nocase:!1})}else if(b==="nocase"){if(!_.length){s.push(`${i}: nocase must come after a content.`);return}_[_.length-1].nocase=!0}else if(b==="msg")x=L[2]||"";else if(!(b==="sid"||b==="rev"||b==="classtype")){s.push(`${i}: Night Watch understands content, nocase, msg, sid and rev. "${b}" is not one of them.`);return}}if(F.slice(M).trim()){s.push(`${i}: check the options. Each one ends with a semicolon.`);return}if(!_.length){s.push(`${i}: add at least one content:"..."; so the rule knows what to look for.`);return}t.push({line:n+1,proto:D,src:O.toLowerCase(),sport:B,dst:N.toLowerCase(),dport:q,contents:_,msg:x})}),{rules:t,errors:s}}function nt(e,t){return e.proto!=="ip"&&e.proto!==t.proto||!Me(e.src,t.src)||!Me(e.dst,t.dst)||e.dport!=="any"&&!e.dport.includes(t.port)?!1:e.contents.every(s=>s.nocase?t.payload.toLowerCase().includes(s.text.toLowerCase()):t.payload.includes(s.text))}function D0(e,t){for(let s=0;s<e.length;s++)if(nt(e[s],t))return{got:"alert",by:s};return{got:"quiet",by:-1}}function oe(){return te().nightWatchOpen===!0||R.progress.done.length>=Y.length}function Fe(e){let t=ne(e);t&&(H.badge(),ee(`Badge unlocked: <b>${t}</b>`,"badge"))}var at=()=>le.reduce((e,t)=>e+(R.progress.best[t.id]||0),0),it=()=>le.reduce((e,t)=>e+xe(t.num),0),H0={rules:"Firewall rules",log:"Log hunt",detect:"Detection rule"};function ve(e,t){let s=R.progress;if(!oe()){e.innerHTML=`<section class="nw"><div class="nw-hero"><p class="eyebrow nw-eye">After graduation</p><h1>Night Watch is locked</h1>
       <p>Night Watch opens after you protect all 8 places in Byteville and graduate. Then the real night shift begins: harder levels, no multiple choice.</p>
-      <button class="btn btn-primary" id="nwBack">Back to the town map</button></div></section>`;
-      $("#nwBack").addEventListener("click", () => go2("map"));
-      return;
-    }
-    const solved = p.nwSolved.length;
-    app2.innerHTML = `<section class="nw">
+      <button class="btn btn-primary" id="nwBack">Back to the town map</button></div></section>`,y("#nwBack").addEventListener("click",()=>t("map"));return}if(!ae()){e.innerHTML=`<section class="nw"><div class="nw-hero"><p class="eyebrow nw-eye">Needs the class server</p><h1>Night Watch is offline</h1>
+      <p>Night Watch answers are checked on your teacher's server, so the game itself never contains them. Ask your teacher to connect the class server, then come back.</p>
+      <button class="btn btn-primary" id="nwBack">Back to the town map</button></div></section>`,y("#nwBack").addEventListener("click",()=>t("map"));return}let o=s.nwSolved.length;e.innerHTML=`<section class="nw">
     <div class="nw-hero">
       <svg class="nw-moon" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="30" fill="#FFE7B8"/><circle cx="54" cy="30" r="26" fill="var(--night)"/></svg>
       <p class="eyebrow nw-eye">Advanced \xB7 12 levels</p>
       <h1>Byteville: Night Watch</h1>
       <p class="nw-lead">The town is asleep. You are not. No multiple choice here: you write the firewall rules, read the raw logs, and tune the alarms yourself. Solve a level to get its passcode and unlock the next one.</p>
-      <div class="nw-stats"><span><b>${solved}</b>/12 solved</span><span><b>${nwPoints()}</b>/${maxNw()} points</span></div>
+      <div class="nw-stats"><span><b>${o}</b>/12 solved</span><span><b>${at()}</b>/${it()} points</span></div>
     </div>
     <div class="nw-grid">
-      <div class="nw-levels">${NW_LEVELS.map((l) => {
-      const done = p.nwSolved.includes(l.id);
-      const open = l.num <= p.nwUnlocked;
-      return `<button class="nw-tile${done ? " done" : ""}${open ? "" : " locked"}" data-l="${l.num}" ${open ? "" : "disabled"}>
-          <span class="nw-num">${String(l.num).padStart(2, "0")}</span>
-          <span class="nw-title">${esc(l.title)}</span>
-          <span class="nw-kind">${KIND[l.kind]} \xB7 ${esc(l.skill)}</span>
-          <span class="nw-foot">${done ? `<b>Solved</b> \xB7 ${p.best[l.id]} pts` : open ? `Worth ${nwBase(l.num)} pts` : "Locked"}</span></button>`;
-    }).join("")}</div>
+      <div class="nw-levels">${le.map(n=>{let r=s.nwSolved.includes(n.id),i=n.num<=s.nwUnlocked;return`<button class="nw-tile${r?" done":""}${i?"":" locked"}" data-l="${n.num}" ${i?"":"disabled"}>
+          <span class="nw-num">${String(n.num).padStart(2,"0")}</span>
+          <span class="nw-title">${f(n.title)}</span>
+          <span class="nw-kind">${H0[n.kind]} \xB7 ${f(n.skill)}</span>
+          <span class="nw-foot">${r?`<b>Solved</b> \xB7 ${s.best[n.id]} pts`:i?`Worth ${xe(n.num)} pts`:"Locked"}</span></button>`}).join("")}</div>
       <aside class="nw-side">
         <div class="nw-card"><h3>Have a passcode?</h3><p class="small">On a new computer, type the passcode from your last solved level to jump back in.</p>
           <form id="pcForm" class="pc-row"><label for="pcIn" class="sr">Passcode</label><input id="pcIn" placeholder="word-word" autocomplete="off"><button class="btn btn-small btn-primary">Unlock</button></form>
           <p class="small" id="pcMsg" aria-live="polite"></p></div>
-        <div class="nw-card"><h3>Byteville network</h3>${netTable()}</div>
+        <div class="nw-card"><h3>Byteville network</h3>${U0()}</div>
         <div class="nw-card"><h3>Scoring</h3><p class="small">Each level is worth more than the last. Each hint costs a quarter of the level's points. Each wrong try costs 5 points. Only your best score counts.</p></div>
       </aside>
-    </div></section>`;
-    app2.querySelectorAll(".nw-tile").forEach((b) => b.addEventListener("click", () => playLevel(app2, go2, NW_LEVELS[Number(b.dataset.l) - 1])));
-    $("#pcForm").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const v = $("#pcIn").value.trim().toLowerCase();
-      const lv = NW_LEVELS.find((l) => l.passcode === v);
-      const msg = $("#pcMsg");
-      if (!lv) {
-        msg.textContent = "That passcode is not right. Check the spelling.";
-        sfx.wrong();
-        return;
-      }
-      const next = Math.min(NW_LEVELS.length, lv.num + 1);
-      if (next > p.nwUnlocked) {
-        p.nwUnlocked = next;
-        persist();
-      }
-      sfx.right();
-      showNightWatch(app2, go2);
-      toast(`Unlocked up to level ${next}.`);
-    });
-  }
-  function netTable() {
-    return `<table class="net">${NETWORK.map(([a, d]) => `<tr><td class="mono">${a}</td><td>${esc(d)}</td></tr>`).join("")}</table>`;
-  }
-  var FW_HELP = `<pre class="syntax">allow|block  proto  source -> destination  port  [established]</pre>
+    </div></section>`,e.querySelectorAll(".nw-tile").forEach(n=>n.addEventListener("click",()=>F0(e,t,le[Number(n.dataset.l)-1]))),y("#pcForm").addEventListener("submit",async n=>{n.preventDefault();let r=y("#pcMsg"),i=y("#pcIn").value.trim().toLowerCase().slice(0,40);if(!i)return;r.textContent="Checking...";let c=await ye({action:"nwpass",code:i});if(!c){r.textContent="Cannot reach the class server. Check your Internet and try again.";return}if(!c.level){r.textContent=c.message||"That passcode is not right. Check the spelling.",H.wrong();return}let u=Math.min(le.length,c.level+1);u>s.nwUnlocked&&(s.nwUnlocked=u,j()),H.right(),ve(e,t),ee(`Unlocked up to level ${u}.`)})}function U0(){return`<table class="net">${M0.map(([e,t])=>`<tr><td class="mono">${e}</td><td>${f(t)}</td></tr>`).join("")}</table>`}var lt=`<pre class="syntax">allow|block  proto  source -> destination  port  [established]</pre>
 <ul class="small tight"><li><b>proto</b>: tcp, udp, icmp, or any</li><li><b>source, destination</b>: any, an IP, or a block like 10.0.2.0/24</li>
-<li><b>port</b>: any, 443, or 80,443</li><li><b>established</b> (optional): match only replies</li><li>Read top to bottom. <b>First match wins.</b></li><li>Lines starting with # are notes.</li></ul>`;
-  var IDS_HELP = `<pre class="syntax">alert tcp any any -> $HOME_NET 80 (msg:"..."; content:"..."; nocase; sid:1000001;)</pre>
+<li><b>port</b>: any, 443, or 80,443</li><li><b>established</b> (optional): match only replies</li><li>Read top to bottom. <b>First match wins.</b></li><li>Lines starting with # are notes.</li></ul>`,ct=`<pre class="syntax">alert tcp any any -> $HOME_NET 80 (msg:"..."; content:"..."; nocase; sid:1000001;)</pre>
 <ul class="small tight"><li><b>content</b>: text that must appear in the traffic</li><li><b>nocase</b>: ignore upper and lower case for the content before it</li>
-<li>More than one content: all of them must appear</li><li><b>$HOME_NET</b> means our servers, 10.0.1.0/24</li></ul>`;
-  function playLevel(app2, go2, lv) {
-    const p = store.progress;
-    let tries = 0;
-    let hints = p.nwHints[lv.id] || 0;
-    let solved = false;
-    let t0 = performance.now();
-    const started = Date.now();
-    const body = lv.kind === "log" ? logBody(lv) : `
-    <label class="nw-label" for="ed">${lv.kind === "rules" ? "Your firewall rules" : "Your detection rule"}${lv.kind === "rules" && lv.maxRules ? ` <span class="muted">(max ${lv.maxRules} rules)</span>` : ""}</label>
-    <textarea id="ed" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" rows="${lv.kind === "rules" ? 9 : 5}">${esc(lv.starter)}</textarea>
-    <div class="row-gap"><button class="btn btn-primary" id="run">Run tests</button><button class="btn btn-small btn-ghost" id="reset">Reset to start</button></div>`;
-    app2.innerHTML = `<section class="nw nw-play">
+<li>More than one content: all of them must appear</li><li><b>$HOME_NET</b> means our servers, 10.0.1.0/24</li></ul>`;function F0(e,t,s){let o=R.progress,n=0,r=o.nwHints[s.id]||0,i=!1,c=performance.now(),u=Date.now(),w=s.kind==="log"?pt(s):`
+    <label class="nw-label" for="ed">${s.kind==="rules"?"Your firewall rules":"Your detection rule"}${s.kind==="rules"&&s.maxRules?` <span class="muted">(max ${s.maxRules} rules)</span>`:""}</label>
+    <textarea id="ed" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" rows="${s.kind==="rules"?9:5}">${f(s.starter)}</textarea>
+    <div class="row-gap"><button class="btn btn-primary" id="run">Run tests</button><button class="btn btn-small btn-ghost" id="reset">Reset to start</button></div>`;e.innerHTML=`<section class="nw nw-play">
     <div class="nw-bar"><button class="btn btn-small" id="back">&larr; Night Watch</button>
-      <div><small>Level ${lv.num} \xB7 ${KIND[lv.kind]}</small><b>${esc(lv.title)}</b></div><span class="nw-worth">Worth <b id="worth">${worth()}</b> pts</span></div>
-    <div class="nw-mission"><p>${esc(lv.story)}</p>${taskHtml(lv.task)}</div>
+      <div><small>Level ${s.num} \xB7 ${H0[s.kind]}</small><b>${f(s.title)}</b></div><span class="nw-worth">Worth <b id="worth">${O()}</b> pts</span></div>
+    <div class="nw-mission"><p>${f(s.story)}</p>${dt(s.task)}</div>
     <div class="nw-work">
-      <div class="nw-main">${body}<div id="msg" class="nw-msg" aria-live="polite"></div><div id="results"></div></div>
+      <div class="nw-main">${w}<div id="msg" class="nw-msg" aria-live="polite"></div><div id="results"></div></div>
       <aside class="nw-side">
-        ${lv.kind !== "log" ? `<div class="nw-card"><h3>How to write it</h3>${lv.kind === "rules" ? FW_HELP : IDS_HELP}</div>` : ""}
-        <div class="nw-card"><h3>Hints</h3><div id="hints">${hintHtml()}</div></div>
-        <div class="nw-card"><h3>Network</h3>${netTable()}</div>
+        ${s.kind!=="log"?`<div class="nw-card"><h3>How to write it</h3>${s.kind==="rules"?lt:ct}</div>`:""}
+        <div class="nw-card"><h3>Hints</h3><div id="hints">${T()}</div></div>
+        <div class="nw-card"><h3>Network</h3>${U0()}</div>
       </aside>
-    </div></section>`;
-    function worth() {
-      const b = nwBase(lv.num);
-      return Math.max(Math.round(b * 0.25), Math.round(b * (1 - 0.25 * hints)) - 5 * tries);
-    }
-    function hintHtml() {
-      return lv.hints.map((h, i) => i < hints ? `<p class="hint-open"><b>Hint ${i + 1}:</b> ${esc(h)}</p>` : "").join("") + (hints < 2 && !solved ? `<button class="btn btn-small" id="hintBtn">Show hint ${hints + 1} (costs ${Math.round(nwBase(lv.num) * 0.25)} pts)</button>` : "");
-    }
-    function wireHint() {
-      const b = document.getElementById("hintBtn");
-      if (b) b.addEventListener("click", () => {
-        hints++;
-        p.nwHints[lv.id] = Math.max(p.nwHints[lv.id] || 0, hints);
-        persist();
-        track({ event: "answer", chapter: "nw", item_id: `${lv.id}-hint${hints}`, prompt: `${lv.title}: opened hint ${hints}`, choice: "hint", correct: "", points: 0 });
-        $("#hints").innerHTML = hintHtml();
-        $("#worth").textContent = String(worth());
-        wireHint();
-      });
-    }
-    wireHint();
-    $("#back").addEventListener("click", () => showNightWatch(app2, go2));
-    const msg = $("#msg");
-    const say = (html, kind) => {
-      msg.className = "nw-msg " + kind;
-      msg.innerHTML = html;
-    };
-    function submit(submission, ok) {
-      const ms = Math.round(performance.now() - t0);
-      t0 = performance.now();
-      if (!ok) {
-        tries++;
-        $("#worth").textContent = String(worth());
-        sfx.wrong();
-        track({ event: "answer", chapter: "nw", item_id: lv.id, prompt: lv.title, choice: submission.slice(0, 280), correct: 0, time_ms: ms, points: 0 });
-        return;
-      }
-      solved = true;
-      const pts = worth();
-      const prev = p.best[lv.id] || 0;
-      p.best[lv.id] = Math.max(prev, pts);
-      p.points = Object.values(p.best).reduce((a, b) => a + b, 0);
-      if (!p.nwSolved.includes(lv.id)) p.nwSolved.push(lv.id);
-      p.nwUnlocked = Math.max(p.nwUnlocked, Math.min(NW_LEVELS.length, lv.num + 1));
-      p.playMs += Date.now() - started;
-      persist();
-      track({ event: "answer", chapter: "nw", item_id: lv.id, prompt: lv.title, choice: submission.slice(0, 280), correct: 1, time_ms: ms, points: pts });
-      track({ event: "chapter_complete", chapter: lv.id, item_id: `${lv.id}-done`, prompt: `Night Watch ${lv.num}: ${lv.title}`, choice: `${hints} hints`, correct: tries, time_ms: Date.now() - started, points: pts, total_points: p.points });
-      void flush();
-      badge("nw-first");
-      if (p.nwSolved.length >= 6) badge("nw-half");
-      if (lv.num >= 7 && hints === 0) badge("nw-clean");
-      const all = p.nwSolved.length === NW_LEVELS.length;
-      if (all) badge("nw-all");
-      sfx.win();
-      confetti();
-      const next = NW_LEVELS[lv.num];
-      modal(
-        `<p class="eyebrow">Level ${lv.num} solved</p><h3>${esc(lv.title)}: cleared!</h3>
-      <p><b>+${pts} points</b>${prev && pts <= prev ? ` (your best is still ${prev})` : ""}. ${tries ? `${tries} wrong ${tries === 1 ? "try" : "tries"}` : "First try"}${hints ? `, ${hints} hint${hints > 1 ? "s" : ""}` : ", no hints"}.</p>
-      <div class="passcode">Passcode for the next level: <b>${lv.passcode}</b></div>
-      <p class="small muted">Write it down. It unlocks level ${Math.min(12, lv.num + 1)} on any computer.</p>${all ? "<p><b>You solved all 12. You are a Byteville Sentinel.</b></p>" : ""}`,
-        next ? [{ label: `Next: ${next.title}`, primary: true, onClick: () => playLevel(app2, go2, next) }, { label: "Night Watch", onClick: () => showNightWatch(app2, go2) }] : [{ label: "Back to Night Watch", primary: true, onClick: () => showNightWatch(app2, go2) }]
-      );
-    }
-    if (lv.kind === "rules" || lv.kind === "detect") {
-      const ed = $("#ed");
-      $("#reset").addEventListener("click", () => {
-        ed.value = lv.starter;
-        say("", "info");
-        $("#results").innerHTML = "";
-      });
-      ed.addEventListener("keydown", (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-          e.preventDefault();
-          $("#run").click();
-        }
-      });
-      $("#run").addEventListener("click", () => {
-        if (solved) return;
-        if (lv.kind === "rules") runRules(lv, ed.value);
-        else runDetect(lv, ed.value);
-      });
-    } else {
-      wireLog(lv);
-    }
-    function runRules(L, src) {
-      const { rules, errors } = parseFirewall(src);
-      if (errors.length) {
-        say(`<b>Fix this first:</b><br>${errors.map(esc).join("<br>")}`, "no");
-        $("#results").innerHTML = "";
-        return;
-      }
-      if (!rules.length) {
-        say("Write at least one rule.", "no");
-        return;
-      }
-      const res = L.packets.map((pk) => ({ pk, ...fwDecide(rules, pk) }));
-      const right = res.filter((r) => r.got === r.pk.want).length;
-      const tooMany = L.maxRules !== void 0 && rules.length > L.maxRules;
-      $("#results").innerHTML = `<div class="tw"><table class="res"><thead><tr><th>Test packet</th><th>Traffic</th><th>Should</th><th>Got</th><th>Rule</th></tr></thead><tbody>
-      ${res.map((r) => `<tr class="${r.got === r.pk.want ? "pass" : "fail"}"><td>${esc(r.pk.label)}</td>
-        <td class="mono small">${r.pk.proto.toUpperCase()} ${r.pk.src} &rarr; ${r.pk.dst}${r.pk.proto === "icmp" ? "" : ":" + r.pk.port}${r.pk.state === "est" ? ' <span class="tag">reply</span>' : ""}</td>
-        <td>${r.pk.want}</td><td><b>${r.got}</b></td><td>${r.by >= 0 ? `#${r.by + 1}` : '<span class="muted">none</span>'}</td></tr>`).join("")}</tbody></table></div>`;
-      const ok = right === res.length && !tooMany;
-      if (ok) say(`<b>All ${res.length} packets handled correctly.</b>`, "ok");
-      else if (right === res.length && tooMany) say(`Every packet is right, but you used ${rules.length} rules. The limit is ${L.maxRules}. Combine some.`, "no");
-      else say(`<b>${right} of ${res.length}</b> packets handled correctly. Look at the red rows: which rule decided them?`, "no");
-      submit(src, ok);
-    }
-    function runDetect(L, src) {
-      const { rules, errors } = parseIds(src);
-      if (errors.length) {
-        say(`<b>Fix this first:</b><br>${errors.map(esc).join("<br>")}`, "no");
-        $("#results").innerHTML = "";
-        return;
-      }
-      if (!rules.length) {
-        say("Write at least one rule.", "no");
-        return;
-      }
-      const res = L.events.map((ev) => ({ ev, ...idsDecide(rules, ev) }));
-      const missed = res.filter((r) => r.ev.want === "alert" && r.got === "quiet").length;
-      const noisy = res.filter((r) => r.ev.want === "quiet" && r.got === "alert").length;
-      $("#results").innerHTML = `<div class="tw"><table class="res"><thead><tr><th>Traffic to the web server</th><th>Should</th><th>Got</th></tr></thead><tbody>
-      ${res.map((r) => `<tr class="${r.got === r.ev.want ? "pass" : "fail"}"><td><span class="small muted">${esc(r.ev.label)}</span><br><span class="mono small">${esc(r.ev.payload)}</span></td><td>${r.ev.want}</td><td><b>${r.got}</b></td></tr>`).join("")}</tbody></table></div>`;
-      const ok = missed === 0 && noisy === 0;
-      if (ok) say("<b>Every attack caught, zero false alarms.</b>", "ok");
-      else say(`${missed ? `<b>${missed} missed attack${missed > 1 ? "s" : ""}</b> (false negatives). ` : ""}${noisy ? `<b>${noisy} false alarm${noisy > 1 ? "s" : ""}</b> (false positives).` : ""}`, "no");
-      submit(src, ok);
-    }
-    function wireLog(L) {
-      const view = $("#logView");
-      const count = $("#logCount");
-      const draw = (q) => {
-        const needle = q.trim().toLowerCase();
-        const lines = needle ? L.log.filter((l) => l.toLowerCase().includes(needle)) : L.log;
-        view.textContent = lines.join("\n") || "(no lines match)";
-        count.textContent = `Showing ${lines.length} of ${L.log.length} lines`;
-      };
-      draw("");
-      const f = $("#logFilter");
-      f.addEventListener("input", () => draw(f.value));
-      $("#ansForm").addEventListener("submit", (e) => {
-        e.preventDefault();
-        if (solved) return;
-        const v = $("#ans").value.trim().toLowerCase().replace(/\s+/g, "");
-        if (!v) return;
-        const ok = v === L.answer.toLowerCase();
-        if (ok) say(`<b>Correct: ${esc(L.answer)}.</b>`, "ok");
-        else say(`<b>"${esc(v)}" is not it.</b> Look again. Each wrong try costs 5 points.`, "no");
-        submit(v, ok);
-      });
-    }
-  }
-  function taskHtml(task) {
-    const parts = task.split(/\s*\(\d+\)\s*/);
-    if (parts.length < 3) return `<p class="nw-task"><b>Your task:</b> ${esc(task)}</p>`;
-    return `<p class="nw-task"><b>Your task:</b> ${esc(parts[0])}</p><ol class="nw-list">${parts.slice(1).map((x) => `<li>${esc(x.replace(/\.$/, ""))}</li>`).join("")}</ol>`;
-  }
-  function logBody(L) {
-    return `<div class="log-tools"><label for="logFilter" class="nw-label">Filter (shows only lines that contain this text)</label>
+    </div></section>`;function O(){let x=xe(s.num);return Math.max(Math.round(x*.25),Math.round(x*(1-.25*r))-5*n)}function T(){return s.hints.map((x,I)=>I<r?`<p class="hint-open"><b>Hint ${I+1}:</b> ${f(x)}</p>`:"").join("")+(r<2&&!i?`<button class="btn btn-small" id="hintBtn">Show hint ${r+1} (costs ${Math.round(xe(s.num)*.25)} pts)</button>`:"")}function v(){let x=document.getElementById("hintBtn");x&&x.addEventListener("click",()=>{r++,o.nwHints[s.id]=Math.max(o.nwHints[s.id]||0,r),j(),y("#hints").innerHTML=T(),y("#worth").textContent=String(O()),v()})}v(),y("#back").addEventListener("click",()=>ve(e,t));let N=y("#msg"),A=(x,I)=>{N.className="nw-msg "+I,N.innerHTML=x},S=!1;async function D(x,I){if(S||i)return;S=!0;let F=document.querySelector("#run, #ansForm button");F&&(F.disabled=!0,F.dataset.label=F.textContent||"",F.textContent="Checking...");let L=await ye({action:"nwcheck",level:s.id,submission:x.slice(0,4e3),hints:r});if(S=!1,F&&(F.disabled=!1,F.textContent=F.dataset.label||"Check"),!L||L.error){A("Cannot reach the class server. Check your Internet and try again.","no");return}if(L.wait){A(f(L.message||"Wait a moment and try again."),"info");return}if(!L.ok){n++,y("#worth").textContent=String(O()),H.wrong(),I===null?A(`<b>"${f(x)}" is not it.</b> Look again. Each wrong try costs 5 points.`,"no"):I&&A("The class server did not accept this one. Check the rule limit and try again.","no");return}i=!0;let M=L.points||0,b=o.best[s.id]||0;o.best[s.id]=Math.max(b,M),o.points=Object.values(o.best).reduce((a,g)=>a+g,0),o.nwSolved.includes(s.id)||o.nwSolved.push(s.id),o.nwUnlocked=Math.max(o.nwUnlocked,Math.min(le.length,s.num+1)),o.playMs+=Date.now()-u,j(),I===null&&A(`<b>Correct: ${f(x)}.</b>`,"ok"),Fe("nw-first"),o.nwSolved.length>=6&&Fe("nw-half"),s.num>=7&&r===0&&Fe("nw-clean");let l=o.nwSolved.length===le.length;l&&Fe("nw-all"),H.win(),we();let d=le[s.num];ie(`<p class="eyebrow">Level ${s.num} solved</p><h3>${f(s.title)}: cleared!</h3>
+      <p><b>${M} points</b>, checked by the class server. ${n?`${n} wrong ${n===1?"try":"tries"}`:"First try"}${r?`, ${r} hint${r>1?"s":""}`:", no hints"}.</p>
+      <div class="passcode">Passcode for the next level: <b>${f(L.passcode||"")}</b></div>
+      <p class="small muted">Write it down. It unlocks level ${Math.min(12,s.num+1)} on any computer.</p>${l?"<p><b>You solved all 12. You are a Byteville Sentinel.</b></p>":""}`,d?[{label:`Next: ${d.title}`,primary:!0,onClick:()=>F0(e,t,d)},{label:"Night Watch",onClick:()=>ve(e,t)}]:[{label:"Back to Night Watch",primary:!0,onClick:()=>ve(e,t)}])}if(s.kind==="rules"||s.kind==="detect"){let x=y("#ed");y("#reset").addEventListener("click",()=>{x.value=s.starter,A("","info"),y("#results").innerHTML=""}),x.addEventListener("keydown",I=>{(I.ctrlKey||I.metaKey)&&I.key==="Enter"&&(I.preventDefault(),y("#run").click())}),y("#run").addEventListener("click",()=>{i||(s.kind==="rules"?B(s,x.value):q(s,x.value))})}else _(s);function B(x,I){let{rules:F,errors:L}=R0(I);if(L.length){A(`<b>Fix this first:</b><br>${L.map(f).join("<br>")}`,"no"),y("#results").innerHTML="";return}if(!F.length){A("Write at least one rule.","no");return}let M=x.packets.map(a=>({pk:a,...N0(F,a)})),b=M.filter(a=>a.got===a.pk.want).length,l=x.maxRules!==void 0&&F.length>x.maxRules;y("#results").innerHTML=`<div class="tw"><table class="res"><thead><tr><th>Test packet</th><th>Traffic</th><th>Should</th><th>Got</th><th>Rule</th></tr></thead><tbody>
+      ${M.map(a=>`<tr class="${a.got===a.pk.want?"pass":"fail"}"><td>${f(a.pk.label)}</td>
+        <td class="mono small">${a.pk.proto.toUpperCase()} ${a.pk.src} &rarr; ${a.pk.dst}${a.pk.proto==="icmp"?"":":"+a.pk.port}${a.pk.state==="est"?' <span class="tag">reply</span>':""}</td>
+        <td>${a.pk.want}</td><td><b>${a.got}</b></td><td>${a.by>=0?`#${a.by+1}`:'<span class="muted">none</span>'}</td></tr>`).join("")}</tbody></table></div>`;let d=b===M.length&&!l;d?A(`<b>All ${M.length} packets handled correctly.</b>`,"ok"):b===M.length&&l?A(`Every packet is right, but you used ${F.length} rules. The limit is ${x.maxRules}. Combine some.`,"no"):A(`<b>${b} of ${M.length}</b> packets handled correctly. Look at the red rows: which rule decided them?`,"no"),D(I,d)}function q(x,I){let{rules:F,errors:L}=I0(I);if(L.length){A(`<b>Fix this first:</b><br>${L.map(f).join("<br>")}`,"no"),y("#results").innerHTML="";return}if(!F.length){A("Write at least one rule.","no");return}let M=x.events.map(a=>({ev:a,...D0(F,a)})),b=M.filter(a=>a.ev.want==="alert"&&a.got==="quiet").length,l=M.filter(a=>a.ev.want==="quiet"&&a.got==="alert").length;y("#results").innerHTML=`<div class="tw"><table class="res"><thead><tr><th>Traffic to the web server</th><th>Should</th><th>Got</th></tr></thead><tbody>
+      ${M.map(a=>`<tr class="${a.got===a.ev.want?"pass":"fail"}"><td><span class="small muted">${f(a.ev.label)}</span><br><span class="mono small">${f(a.ev.payload)}</span></td><td>${a.ev.want}</td><td><b>${a.got}</b></td></tr>`).join("")}</tbody></table></div>`;let d=b===0&&l===0;d?A("<b>Every attack caught, zero false alarms.</b>","ok"):A(`${b?`<b>${b} missed attack${b>1?"s":""}</b> (false negatives). `:""}${l?`<b>${l} false alarm${l>1?"s":""}</b> (false positives).`:""}`,"no"),D(I,d)}function _(x){let I=y("#logView"),F=y("#logCount"),L=b=>{let l=b.trim().toLowerCase(),d=l?x.log.filter(a=>a.toLowerCase().includes(l)):x.log;I.textContent=d.join(`
+`)||"(no lines match)",F.textContent=`Showing ${d.length} of ${x.log.length} lines`};L("");let M=y("#logFilter");M.addEventListener("input",()=>L(M.value)),y("#ansForm").addEventListener("submit",b=>{if(b.preventDefault(),i)return;let l=y("#ans").value.trim().toLowerCase().replace(/\s+/g,"");l&&D(l.slice(0,60),null)})}}function dt(e){let t=e.split(/\s*\(\d+\)\s*/);return t.length<3?`<p class="nw-task"><b>Your task:</b> ${f(e)}</p>`:`<p class="nw-task"><b>Your task:</b> ${f(t[0])}</p><ol class="nw-list">${t.slice(1).map(s=>`<li>${f(s.replace(/\.$/,""))}</li>`).join("")}</ol>`}function pt(e){return`<div class="log-tools"><label for="logFilter" class="nw-label">Filter (shows only lines that contain this text)</label>
     <input id="logFilter" class="log-filter" placeholder="try: DROP" autocomplete="off" spellcheck="false"></div>
-    <div class="log-box"><div class="log-head mono">${esc(L.header)}</div><pre id="logView" class="log-view" tabindex="0"></pre></div>
+    <div class="log-box"><div class="log-head mono">${f(e.header)}</div><pre id="logView" class="log-view" tabindex="0"></pre></div>
     <p class="small muted" id="logCount"></p>
-    <form id="ansForm" class="ans-row"><label for="ans" class="nw-label">${esc(L.question)}</label>
-      <div class="pc-row"><input id="ans" placeholder="${esc(L.placeholder)}" autocomplete="off" spellcheck="false"><button class="btn btn-primary">Check answer</button></div></form>`;
-  }
+    <form id="ansForm" class="ans-row"><label for="ans" class="nw-label">${f(e.question)}</label>
+      <div class="pc-row"><input id="ans" placeholder="${f(e.placeholder)}" autocomplete="off" spellcheck="false"><button class="btn btn-primary">Check answer</button></div></form>`}var ce=[{id:"op1",num:1,title:"First Shift",skill:"pwd, ls, cat",kind:"answer",mission:"You just logged in to web01, the server behind the school website. Find out where you are, look around, and read the welcome file.",ask:"Submit the shift token written in the welcome file.",commands:[["pwd","print the folder you are in"],["ls","list what is in this folder"],["cat FILE","print a file"],["submit ANSWER","send your answer"]],hints:["Type ls and press Enter. Do you see a file called README?","Type  cat README  and copy the token into  submit TOKEN"]},{id:"op2",num:2,title:"Hidden in Plain Sight",skill:"hidden files",kind:"answer",mission:"The day shift left you a note in your home folder, but a plain ls does not show it.",ask:"Submit the token from the hidden note.",commands:[["ls -a","list ALL files, including hidden ones"],["cd ~","go to your home folder"],["cat .NAME","read a hidden file"]],hints:["On Linux, a file whose name starts with a dot is hidden.","Run  ls -a  and look for a name starting with a dot that sounds like a note."]},{id:"op3",num:3,title:"Count the Failures",skill:"grep and wc",kind:"answer",mission:"Someone may be guessing passwords. The login log is /var/log/auth.log.",ask:'How many lines in /var/log/auth.log contain "Failed password"? Submit the number.',commands:[["cd /var/log","go to the log folder"],["grep 'TEXT' FILE","show lines containing TEXT"],["wc -l","count lines"],["A | B","send the output of A into B"],["grep -c","count matching lines directly"]],hints:["Try  grep 'Failed password' /var/log/auth.log  to see the lines.","Count them:  grep 'Failed password' /var/log/auth.log | wc -l"]},{id:"op4",num:4,title:"Loudest Knocker",skill:"sort and uniq -c",kind:"answer",mission:"The firewall log /var/log/ufw.log records every blocked connection. One source address was blocked far more than any other.",ask:"Submit the source IP address that was blocked the most times.",commands:[["grep -o 'SRC=[0-9.]*'","print only the source address part"],["sort","sort lines"],["uniq -c","count repeated lines (use after sort)"],["sort -n","sort by number"],["tail -3","last 3 lines"]],hints:["Pull out just the sources:  grep -o 'SRC=[0-9.]*' /var/log/ufw.log","Count them:  grep -o 'SRC=[0-9.]*' /var/log/ufw.log | sort | uniq -c | sort -n | tail -3"]},{id:"op5",num:5,title:"Know Your Address",skill:"ifconfig and ip",kind:"answer",mission:"Before you can protect a server, you need to know its address on the network.",ask:"Submit web01's IPv4 address on eth0.",commands:[["ifconfig","show network interfaces"],["ip a","the modern way to show addresses"],["ping HOST","check if another machine answers"]],hints:["Run  ifconfig  and look at the eth0 section, not lo.","The address is on the line that starts with  inet  (IPv4), before  netmask."]},{id:"op6",num:6,title:"Unwanted Guest",skill:"listening ports",kind:"answer",mission:"Every program that listens on a port is a door into the server. The approved list is in /etc/byteville/allowed-services.txt.",ask:"One port is listening that is NOT on the approved list. Submit its port number.",commands:[["ss -tuln","list listening ports (t=TCP u=UDP l=listening n=numbers)"],["ss -tulnp","also show which program"],["cat FILE","read the approved list"]],hints:["Compare  ss -tuln  with  cat /etc/byteville/allowed-services.txt",'Look at the Port after the colon in "Local Address:Port". Which one is not 22, 80, 443, 3306 or 53?']},{id:"op7",num:7,title:"Raise the Shields",skill:"ufw firewall",kind:"ufw",mission:"The firewall on web01 is turned off. Set it up: block incoming traffic by default, allow the website (80 and 443), and allow SSH (22) only from the admin network 10.0.5.0/24. Then turn it on.",commands:[["sudo ufw status verbose","see the firewall (needs sudo)"],["sudo ufw default deny incoming","block anything not allowed"],["sudo ufw allow 443/tcp","open a port"],["sudo ufw allow from 10.0.5.0/24 to any port 22 proto tcp","open a port for one network only"],["sudo ufw enable","turn the firewall on"],["submit","test your firewall"]],hints:["You need four kinds of commands: default deny incoming, allow 80/tcp and 443/tcp, the admin SSH rule, and enable.",'Do NOT use  sudo ufw allow 22  because that opens SSH to the whole Internet. Use the "from 10.0.5.0/24" version.']},{id:"op8",num:8,title:"Lock the Drawer",skill:"file permissions",kind:"chmod",mission:"There is an old backup of passwords in ~/backup/passwords.txt, and everyone on the server can read and change it.",ask:"Make passwords.txt readable and writable by you only. Then type submit.",commands:[["ls -l","show permissions like -rw-rw-rw-"],["chmod 600 FILE","owner can read and write, nobody else can"],["chmod go-rw FILE","remove read and write from group and others"]],hints:["Run  ls -l ~/backup  and read the first column: rw- for you, rw- for group, rw- for everyone else.","Run  chmod 600 ~/backup/passwords.txt  and check with ls -l. You want -rw-------"]},{id:"op9",num:9,title:"Priority One",skill:"reading IDS alerts",kind:"answer",mission:"The intrusion detection system writes alerts to /var/log/ids/alerts.log. Most are low priority. A few are Priority 1, the most serious.",ask:"Submit the source IP address behind the Priority 1 alerts.",commands:[["grep 'Priority: 1' FILE","show only the serious alerts"],["grep -o '[0-9.]*:[0-9]* ->'",'print only the "SOURCE:port ->" part'],["cut -d: -f1","keep what comes before the colon"],["sort | uniq -c","count each one"]],hints:["Start with  grep 'Priority: 1' /var/log/ids/alerts.log","In each line, the attacker is just before the arrow:  SOURCE:port -> DESTINATION:port. Submit the IP without the port."]},{id:"op10",num:10,title:"Incident Response",skill:"investigate and block",kind:"ufw",mission:"Alarms are going off. Someone is hammering the login page. Find them in /var/log/nginx/access.log, then block them at the firewall without breaking the website for everyone else.",commands:[["awk '{print $1}' FILE","print the first column (the visitor IP)"],["sort | uniq -c | sort -n","count and rank"],["grep 'POST /login'","only login attempts"],["sudo ufw status numbered","see rules with numbers"],["sudo ufw insert 1 deny from IP","put a block rule at the TOP"],["submit","test your firewall"]],hints:["Find the loudest login visitor:  grep 'POST /login' /var/log/nginx/access.log | awk '{print $1}' | sort | uniq -c | sort -n | tail -3",'A rule added with  ufw deny  goes to the BOTTOM, after "allow 443", so it never matches. Use  sudo ufw insert 1 deny from IP']}],Ee=e=>50+e*10;var B0={host:"web01",ip:"10.0.1.174",mac:"02:90:78:0b:09:66",gateway:"10.0.1.1",readme:`Welcome to the Byteville Control Room, defender.
 
-  // src/main.ts
-  var app = $("#app");
-  function renderHeader(active) {
-    const prof = store.profile;
-    const p = store.progress;
-    const r = rankFor(p.points);
-    document.querySelectorAll(".nav a").forEach((a) => a.classList.toggle("on", a.dataset.go === active));
-    $("#navPlayer").innerHTML = prof ? `<button class="player-pill" data-go="profile" aria-label="Your profile">${avatar(prof.avatar, 34)}
-    <span><b>${esc(prof.name)}</b><small>${r.name} \xB7 <span class="pts-num">${p.points}</span> pts</small></span></button>` : "";
-    const pill = $("#navPlayer .player-pill");
-    if (pill) pill.addEventListener("click", () => go("profile"));
-  }
-  function go(route) {
-    if (!store.profile && route !== "help") route = "welcome";
-    window.scrollTo(0, 0);
-    switch (route) {
-      case "map":
-        return showMap();
-      case "badges":
-        return showBadges();
-      case "help":
-        return showHelp();
-      case "profile":
-        return showProfile();
-      case "grad":
-        return showGrad();
-      case "nightwatch":
-        renderHeader("nightwatch");
-        return showNightWatch(app, go);
-      default:
-        return showWelcome();
-    }
-  }
-  (() => {
-    const nav = document.querySelector(".nav");
-    if (nav && !nav.querySelector('[data-go="nightwatch"]')) {
-      const a = document.createElement("a");
-      a.href = "#";
-      a.dataset.go = "nightwatch";
-      a.textContent = "Night Watch";
-      a.className = "nav-night";
-      nav.insertBefore(a, nav.querySelector('[data-go="help"]'));
-    }
-  })();
-  document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", (e) => {
-    e.preventDefault();
-    go(a.dataset.go || "map");
-  }));
-  function showWelcome() {
-    renderHeader("");
-    let pickAv = 0;
-    app.innerHTML = `
+This is web01, the server behind the school website.
+Your first shift token is:
+
+    copper-sparrow-9561
+
+Type:  submit copper-sparrow-9561
+`,hidden:`Good eye. Files that start with a dot are hidden from a plain ls.
+Shift token: ocean-torch-1939
+`,authLog:["Oct  6 21:00:23 web01 sshd[7932]: Accepted password for maya from 10.0.2.37 port 57240 ssh2","Oct  6 21:00:24 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:00:59 web01 sshd[9531]: Accepted password for maya from 10.0.2.58 port 63039 ssh2","Oct  6 21:01:00 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:01:01 web01 sshd[1755]: Failed password for invalid user oracle from 192.0.2.240 port 58236 ssh2","Oct  6 21:03:02 web01 sshd[3172]: Accepted password for library from 10.0.2.49 port 64881 ssh2","Oct  6 21:03:55 web01 sshd[7688]: Accepted password for coach from 10.0.2.67 port 52828 ssh2","Oct  6 21:04:28 web01 sshd[1604]: Accepted password for coach from 10.0.2.65 port 54550 ssh2","Oct  6 21:06:39 web01 sshd[9083]: Accepted password for leo from 10.0.2.35 port 60613 ssh2","Oct  6 21:08:08 web01 sshd[9851]: Failed password for admin from 203.0.113.228 port 50059 ssh2","Oct  6 21:08:45 web01 sshd[7772]: Accepted password for jcarter from 10.0.2.55 port 46667 ssh2","Oct  6 21:08:46 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:09:36 web01 sshd[3437]: Accepted password for coach from 10.0.2.85 port 57010 ssh2","Oct  6 21:10:41 web01 sshd[6145]: Accepted password for library from 10.0.2.33 port 50886 ssh2","Oct  6 21:11:57 web01 sshd[7784]: Accepted password for maya from 10.0.2.37 port 42113 ssh2","Oct  6 21:12:40 web01 sshd[2554]: Accepted password for jcarter from 10.0.2.10 port 51080 ssh2","Oct  6 21:13:37 web01 sshd[3113]: Accepted password for coach from 10.0.2.87 port 40311 ssh2","Oct  6 21:15:35 web01 sshd[2774]: Accepted password for jcarter from 10.0.2.81 port 64066 ssh2","Oct  6 21:15:36 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:16:02 web01 sshd[1818]: Accepted password for coach from 10.0.2.64 port 43588 ssh2","Oct  6 21:17:55 web01 sshd[1611]: Accepted password for leo from 10.0.2.47 port 43276 ssh2","Oct  6 21:18:31 web01 sshd[4510]: Accepted password for coach from 10.0.2.87 port 52605 ssh2","Oct  6 21:18:32 web01 sudo:     coach : TTY=pts/0 ; PWD=/home/coach ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:20:07 web01 sshd[2709]: Accepted password for jcarter from 10.0.2.42 port 59274 ssh2","Oct  6 21:20:59 web01 sshd[8311]: Failed password for invalid user pi from 192.0.2.159 port 44214 ssh2","Oct  6 21:21:40 web01 sshd[9345]: Accepted password for coach from 10.0.2.61 port 62007 ssh2","Oct  6 21:22:32 web01 sshd[9486]: Accepted password for leo from 10.0.2.59 port 60739 ssh2","Oct  6 21:23:09 web01 sshd[7345]: Accepted password for maya from 10.0.2.49 port 48528 ssh2","Oct  6 21:25:28 web01 sshd[2211]: Accepted password for maya from 10.0.2.31 port 46407 ssh2","Oct  6 21:25:29 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:27:14 web01 sshd[7666]: Accepted password for leo from 10.0.2.22 port 55964 ssh2","Oct  6 21:27:48 web01 sshd[1244]: Accepted password for leo from 10.0.2.46 port 57796 ssh2","Oct  6 21:30:04 web01 sshd[8731]: Accepted password for maya from 10.0.2.77 port 44057 ssh2","Oct  6 21:30:50 web01 sshd[5016]: Accepted password for library from 10.0.2.33 port 51403 ssh2","Oct  6 21:31:48 web01 sshd[8307]: Failed password for admin from 192.0.2.149 port 47347 ssh2","Oct  6 21:32:35 web01 sshd[2820]: Accepted password for leo from 10.0.2.59 port 44249 ssh2","Oct  6 21:33:04 web01 sshd[6541]: Accepted password for coach from 10.0.2.10 port 63889 ssh2","Oct  6 21:34:41 web01 sshd[6696]: Accepted password for library from 10.0.2.57 port 63872 ssh2","Oct  6 21:36:46 web01 sshd[6652]: Accepted password for coach from 10.0.2.24 port 60563 ssh2","Oct  6 21:37:06 web01 sshd[5728]: Accepted password for leo from 10.0.2.55 port 58523 ssh2","Oct  6 21:37:30 web01 sshd[2440]: Failed password for admin from 198.51.100.49 port 44418 ssh2","Oct  6 21:38:47 web01 sshd[7316]: Accepted password for library from 10.0.2.49 port 53754 ssh2","Oct  6 21:38:48 web01 sudo:     library : TTY=pts/0 ; PWD=/home/library ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:39:53 web01 sshd[6430]: Accepted password for leo from 10.0.2.71 port 44194 ssh2","Oct  6 21:42:10 web01 sshd[5662]: Accepted password for leo from 10.0.2.52 port 46343 ssh2","Oct  6 21:44:10 web01 sshd[1913]: Accepted password for leo from 10.0.2.41 port 40771 ssh2","Oct  6 21:44:11 web01 sudo:     leo : TTY=pts/0 ; PWD=/home/leo ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:45:30 web01 sshd[6360]: Accepted password for leo from 10.0.2.18 port 61776 ssh2","Oct  6 21:46:56 web01 sshd[5473]: Accepted password for leo from 10.0.2.86 port 64141 ssh2","Oct  6 21:46:57 web01 sudo:     leo : TTY=pts/0 ; PWD=/home/leo ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:47:33 web01 sshd[6524]: Accepted password for jcarter from 10.0.2.12 port 44691 ssh2","Oct  6 21:47:34 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:49:30 web01 sshd[8808]: Accepted password for maya from 10.0.2.81 port 63816 ssh2","Oct  6 21:49:31 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:49:58 web01 sshd[1869]: Accepted password for leo from 10.0.2.36 port 62121 ssh2","Oct  6 21:51:42 web01 sshd[3091]: Accepted password for library from 10.0.2.26 port 55635 ssh2","Oct  6 21:52:58 web01 sshd[1083]: Accepted password for coach from 10.0.2.26 port 63933 ssh2","Oct  6 21:54:21 web01 sshd[9138]: Accepted password for maya from 10.0.2.12 port 56517 ssh2","Oct  6 21:54:22 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:56:11 web01 sshd[2760]: Accepted password for library from 10.0.2.17 port 64214 ssh2","Oct  6 21:56:12 web01 sudo:     library : TTY=pts/0 ; PWD=/home/library ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:56:58 web01 sshd[4287]: Failed password for admin from 203.0.113.56 port 53725 ssh2","Oct  6 21:57:07 web01 sshd[3109]: Accepted password for maya from 10.0.2.49 port 44525 ssh2","Oct  6 21:58:10 web01 sshd[6010]: Accepted password for leo from 10.0.2.45 port 60406 ssh2","Oct  6 21:58:11 web01 sudo:     leo : TTY=pts/0 ; PWD=/home/leo ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 21:59:17 web01 sshd[5957]: Accepted password for leo from 10.0.2.70 port 60056 ssh2","Oct  6 21:59:18 web01 sudo:     leo : TTY=pts/0 ; PWD=/home/leo ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:00:42 web01 sshd[6389]: Accepted password for maya from 10.0.2.43 port 61933 ssh2","Oct  6 22:01:13 web01 sshd[3848]: Accepted password for leo from 10.0.2.69 port 59938 ssh2","Oct  6 22:02:02 web01 sshd[8876]: Failed password for invalid user guest from 192.0.2.184 port 51417 ssh2","Oct  6 22:03:08 web01 sshd[4720]: Accepted password for jcarter from 10.0.2.85 port 48358 ssh2","Oct  6 22:03:09 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:03:36 web01 sshd[4719]: Accepted password for jcarter from 10.0.2.55 port 45574 ssh2","Oct  6 22:03:37 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:04:24 web01 sshd[5088]: Accepted password for jcarter from 10.0.2.17 port 55186 ssh2","Oct  6 22:04:48 web01 sshd[8415]: Accepted password for jcarter from 10.0.2.58 port 50272 ssh2","Oct  6 22:04:49 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:05:24 web01 sshd[7360]: Accepted password for jcarter from 10.0.2.87 port 51167 ssh2","Oct  6 22:06:16 web01 sshd[5111]: Accepted password for jcarter from 10.0.2.36 port 49678 ssh2","Oct  6 22:08:10 web01 sshd[2317]: Failed password for admin from 198.51.100.203 port 46463 ssh2","Oct  6 22:08:18 web01 sshd[7985]: Accepted password for jcarter from 10.0.2.64 port 62336 ssh2","Oct  6 22:08:39 web01 sshd[7744]: Accepted password for maya from 10.0.2.45 port 50118 ssh2","Oct  6 22:08:40 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:09:12 web01 sshd[9910]: Accepted password for jcarter from 10.0.2.16 port 58694 ssh2","Oct  6 22:10:01 web01 sshd[6395]: Accepted password for jcarter from 10.0.2.26 port 42624 ssh2","Oct  6 22:11:35 web01 sshd[4113]: Accepted password for maya from 10.0.2.30 port 49421 ssh2","Oct  6 22:11:36 web01 sudo:     maya : TTY=pts/0 ; PWD=/home/maya ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:12:00 web01 sshd[9439]: Failed password for admin from 203.0.113.76 port 60313 ssh2","Oct  6 22:12:35 web01 sshd[5881]: Accepted password for leo from 10.0.2.78 port 58645 ssh2","Oct  6 22:13:25 web01 sshd[8622]: Accepted password for jcarter from 10.0.2.46 port 57312 ssh2","Oct  6 22:13:26 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:14:23 web01 sshd[9739]: Failed password for invalid user test from 203.0.113.59 port 52717 ssh2","Oct  6 22:14:58 web01 sshd[5065]: Accepted password for library from 10.0.2.49 port 58682 ssh2","Oct  6 22:15:07 web01 sshd[9377]: Failed password for admin from 192.0.2.184 port 49616 ssh2","Oct  6 22:16:09 web01 sshd[3993]: Accepted password for maya from 10.0.2.81 port 51263 ssh2","Oct  6 22:17:10 web01 sshd[7393]: Accepted password for coach from 10.0.2.22 port 45259 ssh2","Oct  6 22:18:17 web01 sshd[5197]: Accepted password for coach from 10.0.2.21 port 45660 ssh2","Oct  6 22:18:18 web01 sudo:     coach : TTY=pts/0 ; PWD=/home/coach ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:19:30 web01 sshd[2295]: Accepted password for library from 10.0.2.27 port 59182 ssh2","Oct  6 22:19:31 web01 sudo:     library : TTY=pts/0 ; PWD=/home/library ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:19:48 web01 sshd[8301]: Failed password for admin from 198.51.100.10 port 47708 ssh2","Oct  6 22:20:24 web01 sshd[8924]: Accepted password for library from 10.0.2.35 port 45739 ssh2","Oct  6 22:20:25 web01 sudo:     library : TTY=pts/0 ; PWD=/home/library ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:21:21 web01 sshd[1548]: Accepted password for coach from 10.0.2.70 port 63974 ssh2","Oct  6 22:22:04 web01 sshd[3765]: Accepted password for jcarter from 10.0.2.20 port 64272 ssh2","Oct  6 22:22:05 web01 sudo:     jcarter : TTY=pts/0 ; PWD=/home/jcarter ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:24:00 web01 sshd[4635]: Accepted password for coach from 10.0.2.12 port 63075 ssh2","Oct  6 22:24:01 web01 sudo:     coach : TTY=pts/0 ; PWD=/home/coach ; USER=root ; COMMAND=/usr/bin/apt update","Oct  6 22:25:52 web01 sshd[2525]: Failed password for admin from 192.0.2.31 port 52425 ssh2","Oct  6 22:32:10 web01 sshd[4476]: Failed password for admin from 198.51.100.79 port 58483 ssh2","Oct  6 22:39:28 web01 sshd[8109]: Failed password for invalid user guest from 198.51.100.15 port 59349 ssh2","Oct  6 22:43:18 web01 sshd[5965]: Failed password for invalid user oracle from 203.0.113.243 port 58809 ssh2","Oct  6 22:43:51 web01 sshd[2573]: Failed password for admin from 192.0.2.147 port 43145 ssh2","Oct  6 22:58:05 web01 sshd[5187]: Failed password for admin from 198.51.100.125 port 56446 ssh2","Oct  6 23:06:22 web01 sshd[8938]: Failed password for invalid user guest from 198.51.100.226 port 51646 ssh2","Oct  6 23:06:59 web01 sshd[3162]: Failed password for admin from 192.0.2.223 port 56666 ssh2","Oct  6 23:15:18 web01 sshd[2082]: Failed password for invalid user guest from 192.0.2.69 port 60695 ssh2","Oct  6 23:20:33 web01 sshd[5372]: Failed password for admin from 203.0.113.46 port 44527 ssh2","Oct  6 23:20:36 web01 sshd[9023]: Failed password for admin from 192.0.2.182 port 63076 ssh2","Oct  6 23:20:47 web01 sshd[7325]: Failed password for admin from 198.51.100.209 port 52923 ssh2","Oct  6 23:24:14 web01 sshd[2207]: Failed password for invalid user oracle from 203.0.113.32 port 62830 ssh2","Oct  6 23:26:15 web01 sshd[2311]: Failed password for admin from 203.0.113.248 port 58906 ssh2","Oct  6 23:37:21 web01 sshd[4207]: Failed password for invalid user pi from 192.0.2.195 port 60749 ssh2","Oct  6 23:38:14 web01 sshd[5260]: Failed password for invalid user test from 198.51.100.17 port 55247 ssh2","Oct  6 23:53:19 web01 sshd[3059]: Failed password for invalid user test from 192.0.2.14 port 57721 ssh2","Oct  6 00:11:14 web01 sshd[8392]: Failed password for admin from 203.0.113.194 port 42033 ssh2","Oct  6 00:18:14 web01 sshd[9622]: Failed password for admin from 198.51.100.143 port 54863 ssh2"],ufwLog:["Oct  6 22:03:00 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:20:16:a5:a6:86 SRC=203.0.113.174 DST=10.0.1.174 LEN=60 TTL=46 PROTO=TCP SPT=48367 DPT=445","Oct  6 22:03:53 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b8:57:76:7b:20 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=49423 DPT=3306","Oct  6 22:04:16 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:1d:65:bd:47:55 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=41 PROTO=TCP SPT=36748 DPT=8080","Oct  6 22:07:21 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:61:b6:7e:10:d1 SRC=203.0.113.182 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=51462 DPT=22","Oct  6 22:10:10 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:64:94:6a:15:5c SRC=198.51.100.170 DST=10.0.1.174 LEN=60 TTL=48 PROTO=TCP SPT=31572 DPT=22","Oct  6 22:13:34 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:a0:32:85:98:eb SRC=203.0.113.173 DST=10.0.1.174 LEN=60 TTL=43 PROTO=TCP SPT=30361 DPT=3389","Oct  6 22:14:50 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:97:61:c2:d9:22 SRC=203.0.113.126 DST=10.0.1.174 LEN=60 TTL=60 PROTO=TCP SPT=62838 DPT=22","Oct  6 22:15:57 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:ad:76:a1:68:b9 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=51 PROTO=TCP SPT=49777 DPT=110","Oct  6 22:16:14 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:a4:0b:a7:bd:04 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=64 PROTO=TCP SPT=41475 DPT=22","Oct  6 22:16:59 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:93:bb:a0:34:df SRC=198.51.100.170 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=34763 DPT=22","Oct  6 22:22:41 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:79:bf:0b:22:a1 SRC=192.0.2.201 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=64268 DPT=5900","Oct  6 22:23:54 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:ea:dd:22:ad:9f SRC=198.51.100.9 DST=10.0.1.174 LEN=60 TTL=40 PROTO=TCP SPT=59198 DPT=5900","Oct  6 22:24:26 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:d8:43:d1:e7:e3 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=40 PROTO=TCP SPT=42884 DPT=22","Oct  6 22:24:47 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:2f:5b:32:76:a5 SRC=192.0.2.221 DST=10.0.1.174 LEN=60 TTL=41 PROTO=TCP SPT=45864 DPT=21","Oct  6 22:26:38 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:d8:2f:7e:a3:24 SRC=198.51.100.194 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=49342 DPT=21","Oct  6 22:27:01 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:cf:e4:fe:c8:87 SRC=203.0.113.212 DST=10.0.1.174 LEN=60 TTL=50 PROTO=TCP SPT=59150 DPT=445","Oct  6 22:30:00 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:92:43:4b:6d:b8 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=47 PROTO=TCP SPT=32542 DPT=5432","Oct  6 22:30:26 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:43:d8:89:3a:bf SRC=198.51.100.186 DST=10.0.1.174 LEN=60 TTL=45 PROTO=TCP SPT=51641 DPT=5900","Oct  6 22:30:29 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:f9:de:f7:42:8b SRC=203.0.113.214 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=30794 DPT=5900","Oct  6 22:34:46 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:26:b7:08:0f:3f SRC=203.0.113.240 DST=10.0.1.174 LEN=60 TTL=55 PROTO=TCP SPT=55194 DPT=22","Oct  6 22:36:52 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b7:ce:40:21:c4 SRC=203.0.113.147 DST=10.0.1.174 LEN=60 TTL=51 PROTO=TCP SPT=44116 DPT=21","Oct  6 22:37:14 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:42:d4:d8:f0:10 SRC=198.51.100.247 DST=10.0.1.174 LEN=60 TTL=46 PROTO=TCP SPT=51338 DPT=23","Oct  6 22:40:35 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:1b:d6:f1:d1:82 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=41 PROTO=TCP SPT=58027 DPT=5432","Oct  6 22:40:44 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b4:5b:ee:38:49 SRC=203.0.113.36 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=34954 DPT=22","Oct  6 22:43:12 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:6c:ff:ab:23:40 SRC=203.0.113.232 DST=10.0.1.174 LEN=60 TTL=45 PROTO=TCP SPT=49387 DPT=21","Oct  6 22:45:10 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:0d:cc:7e:b5:c7 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=30411 DPT=8080","Oct  6 22:46:38 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:ed:7c:6f:09:73 SRC=203.0.113.143 DST=10.0.1.174 LEN=60 TTL=55 PROTO=TCP SPT=51648 DPT=3389","Oct  6 22:46:56 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:47:ef:43:43:eb SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=50 PROTO=TCP SPT=34290 DPT=3306","Oct  6 22:47:48 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:dc:19:5c:b2:de SRC=192.0.2.47 DST=10.0.1.174 LEN=60 TTL=58 PROTO=TCP SPT=64018 DPT=21","Oct  6 22:47:50 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:e1:f6:dd:06:98 SRC=192.0.2.237 DST=10.0.1.174 LEN=60 TTL=43 PROTO=TCP SPT=45440 DPT=5900","Oct  6 22:50:35 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:a7:d1:8e:04:07 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=48 PROTO=TCP SPT=53393 DPT=5432","Oct  6 22:51:07 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:f3:52:5d:6e:cb SRC=203.0.113.168 DST=10.0.1.174 LEN=60 TTL=61 PROTO=TCP SPT=56638 DPT=22","Oct  6 22:52:49 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:6b:2c:d4:74:89 SRC=192.0.2.127 DST=10.0.1.174 LEN=60 TTL=62 PROTO=TCP SPT=50465 DPT=22","Oct  6 22:56:21 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:40:ff:83:82:d6 SRC=192.0.2.149 DST=10.0.1.174 LEN=60 TTL=48 PROTO=TCP SPT=43811 DPT=3389","Oct  6 22:57:26 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:89:b8:ea:a8:02 SRC=192.0.2.92 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=56698 DPT=445","Oct  6 22:59:19 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:c7:2b:de:4e:9a SRC=198.51.100.192 DST=10.0.1.174 LEN=60 TTL=49 PROTO=TCP SPT=46381 DPT=23","Oct  6 22:59:26 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b5:bf:65:d2:9a SRC=198.51.100.26 DST=10.0.1.174 LEN=60 TTL=50 PROTO=TCP SPT=33563 DPT=5900","Oct  6 22:59:54 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:16:f5:38:2e:09 SRC=192.0.2.171 DST=10.0.1.174 LEN=60 TTL=41 PROTO=TCP SPT=51066 DPT=23","Oct  6 23:01:55 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:78:a8:d4:3b:c1 SRC=198.51.100.18 DST=10.0.1.174 LEN=60 TTL=54 PROTO=TCP SPT=43116 DPT=3389","Oct  6 23:03:27 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:bb:04:78:5e:92 SRC=198.51.100.68 DST=10.0.1.174 LEN=60 TTL=60 PROTO=TCP SPT=44985 DPT=22","Oct  6 23:04:59 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:a4:41:01:c4:49 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=62 PROTO=TCP SPT=46964 DPT=1433","Oct  6 23:09:31 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:09:ae:4a:41:f0 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=43 PROTO=TCP SPT=57456 DPT=21","Oct  6 23:10:24 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:ef:11:94:f7:84 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=46 PROTO=TCP SPT=56594 DPT=22","Oct  6 23:13:17 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b8:ca:be:39:d0 SRC=198.51.100.81 DST=10.0.1.174 LEN=60 TTL=59 PROTO=TCP SPT=53167 DPT=23","Oct  6 23:13:51 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:56:dc:b4:3a:f8 SRC=198.51.100.191 DST=10.0.1.174 LEN=60 TTL=64 PROTO=TCP SPT=55393 DPT=22","Oct  6 23:14:29 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:cb:40:76:4e:65 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=45 PROTO=TCP SPT=51983 DPT=5432","Oct  6 23:14:38 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:46:4a:95:87:e6 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=42 PROTO=TCP SPT=64201 DPT=110","Oct  6 23:16:37 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:cb:07:e9:ba:52 SRC=198.51.100.117 DST=10.0.1.174 LEN=60 TTL=61 PROTO=TCP SPT=46992 DPT=5900","Oct  6 23:18:39 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:90:58:ed:b6:08 SRC=192.0.2.105 DST=10.0.1.174 LEN=60 TTL=53 PROTO=TCP SPT=64396 DPT=21","Oct  6 23:21:22 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:14:7d:05:2a:ed SRC=203.0.113.168 DST=10.0.1.174 LEN=60 TTL=46 PROTO=TCP SPT=54569 DPT=21","Oct  6 23:23:10 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:31:a2:21:cd:ea SRC=203.0.113.182 DST=10.0.1.174 LEN=60 TTL=52 PROTO=TCP SPT=43173 DPT=22","Oct  6 23:23:16 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:3a:0b:08:59:22 SRC=198.51.100.40 DST=10.0.1.174 LEN=60 TTL=62 PROTO=TCP SPT=30165 DPT=21","Oct  6 23:27:25 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:4c:98:e1:c6:c2 SRC=203.0.113.38 DST=10.0.1.174 LEN=60 TTL=49 PROTO=TCP SPT=51750 DPT=445","Oct  6 23:28:02 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:ed:e5:81:07:21 SRC=198.51.100.68 DST=10.0.1.174 LEN=60 TTL=56 PROTO=TCP SPT=45030 DPT=22","Oct  6 23:28:20 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:e8:5c:9a:d5:53 SRC=198.51.100.169 DST=10.0.1.174 LEN=60 TTL=40 PROTO=TCP SPT=32025 DPT=3389","Oct  6 23:30:03 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b2:12:1f:c2:2c SRC=198.51.100.24 DST=10.0.1.174 LEN=60 TTL=57 PROTO=TCP SPT=48722 DPT=23","Oct  6 23:34:19 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:77:1c:53:7a:f3 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=50 PROTO=TCP SPT=62330 DPT=22","Oct  6 23:35:13 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:aa:87:49:70:62 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=54 PROTO=TCP SPT=62430 DPT=8080","Oct  6 23:35:23 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:02:28:ef:ad:d9 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=61 PROTO=TCP SPT=38241 DPT=1433","Oct  6 23:38:12 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:7a:5b:2e:a0:2d SRC=192.0.2.23 DST=10.0.1.174 LEN=60 TTL=45 PROTO=TCP SPT=37923 DPT=22","Oct  6 23:40:50 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:46:b2:05:48:b6 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=36819 DPT=1433","Oct  6 23:41:14 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:05:6e:09:6b:25 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=61 PROTO=TCP SPT=61299 DPT=21","Oct  6 23:41:33 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:c2:93:0e:cb:59 SRC=203.0.113.168 DST=10.0.1.174 LEN=60 TTL=49 PROTO=TCP SPT=36103 DPT=22","Oct  6 23:42:16 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:85:b3:9f:d8:72 SRC=192.0.2.194 DST=10.0.1.174 LEN=60 TTL=59 PROTO=TCP SPT=58918 DPT=445","Oct  6 23:43:16 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:7e:4e:cd:11:ba SRC=203.0.113.126 DST=10.0.1.174 LEN=60 TTL=59 PROTO=TCP SPT=59309 DPT=22","Oct  6 23:44:31 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:44:31:9e:ae:78 SRC=198.51.100.171 DST=10.0.1.174 LEN=60 TTL=46 PROTO=TCP SPT=33464 DPT=3389","Oct  6 23:51:55 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:28:9b:af:eb:15 SRC=198.51.100.143 DST=10.0.1.174 LEN=60 TTL=45 PROTO=TCP SPT=51671 DPT=445","Oct  6 23:52:06 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:2b:3a:c9:f6:d1 SRC=203.0.113.73 DST=10.0.1.174 LEN=60 TTL=60 PROTO=TCP SPT=53688 DPT=21","Oct  6 23:52:33 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:aa:4c:8f:c2:8f SRC=203.0.113.240 DST=10.0.1.174 LEN=60 TTL=64 PROTO=TCP SPT=38682 DPT=22","Oct  6 23:52:35 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:d8:80:cf:25:6d SRC=192.0.2.86 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=56360 DPT=23","Oct  6 23:53:49 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:74:16:b1:a7:34 SRC=192.0.2.107 DST=10.0.1.174 LEN=60 TTL=44 PROTO=TCP SPT=47816 DPT=445","Oct  6 23:53:56 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:b8:ef:69:44:f4 SRC=198.51.100.37 DST=10.0.1.174 LEN=60 TTL=63 PROTO=TCP SPT=31470 DPT=445","Oct  6 23:54:22 web01 kernel: [0.000000] [UFW BLOCK] IN=eth0 OUT= MAC=02:79:bc:16:21:87 SRC=198.51.100.80 DST=10.0.1.174 LEN=60 TTL=56 PROTO=TCP SPT=44351 DPT=3389"],alerts:["10/06-23:00:42.624  [**] [1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.50:63458 -> 10.0.1.174:22","10/06-23:00:47.445  [**] [1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 192.0.2.168:32114 -> 10.0.1.174:22","10/06-23:02:30.903  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 198.51.100.227:42239 -> 10.0.1.174:80","10/06-23:02:37.406  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 192.0.2.159 -> 10.0.1.174","10/06-23:03:39.139  [**] [1:1000004:1] Possible SQL injection [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 203.0.113.148:35569 -> 10.0.1.174:80","10/06-23:06:19.215  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 192.0.2.156 -> 10.0.1.174","10/06-23:06:43.111  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 198.51.100.238:46257 -> 10.0.1.174:1433","10/06-23:07:06.509  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 192.0.2.124 -> 10.0.1.174","10/06-23:07:24.478  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.172:55513 -> 10.0.1.174:80","10/06-23:13:14.614  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 203.0.113.50:48864 -> 10.0.1.174:80","10/06-23:15:17.459  [**] [1:1000004:1] Possible SQL injection [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 203.0.113.148:37614 -> 10.0.1.174:80","10/06-23:16:55.375  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 192.0.2.122:56229 -> 10.0.1.174:1433","10/06-23:21:34.989  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 198.51.100.217 -> 10.0.1.174","10/06-23:21:44.682  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 203.0.113.210:44095 -> 10.0.1.174:1433","10/06-23:22:44.646  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.120:50719 -> 10.0.1.174:80","10/06-23:23:08.853  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.64:32184 -> 10.0.1.174:80","10/06-23:27:53.530  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 192.0.2.79:52119 -> 10.0.1.174:1433","10/06-23:28:19.890  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 192.0.2.85 -> 10.0.1.174","10/06-23:30:20.243  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 203.0.113.167:53234 -> 10.0.1.174:80","10/06-23:32:52.577  [**] [1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.90:51776 -> 10.0.1.174:22","10/06-23:33:18.300  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 203.0.113.44:40649 -> 10.0.1.174:80","10/06-23:34:47.597  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 192.0.2.48:37537 -> 10.0.1.174:1433","10/06-23:36:05.311  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.114:30020 -> 10.0.1.174:80","10/06-23:36:15.636  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 198.51.100.63:47552 -> 10.0.1.174:80","10/06-23:37:00.478  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 198.51.100.21:58528 -> 10.0.1.174:1433","10/06-23:37:04.471  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 203.0.113.73:32713 -> 10.0.1.174:80","10/06-23:37:54.881  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 203.0.113.156:53285 -> 10.0.1.174:1433","10/06-23:43:10.868  [**] [1:1000004:1] Possible SQL injection [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 203.0.113.148:57559 -> 10.0.1.174:80","10/06-23:43:16.421  [**] [1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.15:51279 -> 10.0.1.174:22","10/06-23:43:36.334  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 198.51.100.21 -> 10.0.1.174","10/06-23:44:54.338  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.184:54966 -> 10.0.1.174:80","10/06-23:45:05.696  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 198.51.100.201:35527 -> 10.0.1.174:1433","10/06-23:45:24.236  [**] [1:2010935:3] ET SCAN Suspicious inbound to MSSQL port 1433 [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 203.0.113.22:36522 -> 10.0.1.174:1433","10/06-23:47:29.333  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 203.0.113.112:61392 -> 10.0.1.174:80","10/06-23:47:35.972  [**] [1:1000004:1] Possible SQL injection [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 203.0.113.148:35473 -> 10.0.1.174:80","10/06-23:47:48.685  [**] [1:1000004:1] Possible SQL injection [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 203.0.113.148:33975 -> 10.0.1.174:80","10/06-23:47:54.494  [**] [1:2013504:6] ET POLICY GNU/Linux APT User-Agent Outbound [**] [Classification: Not Suspicious Traffic] [Priority: 3] {TCP} 192.0.2.99:59303 -> 10.0.1.174:80","10/06-23:48:12.395  [**] [1:2001219:20] ET SCAN Potential SSH Scan [**] [Classification: Attempted Information Leak] [Priority: 2] {TCP} 198.51.100.218:39212 -> 10.0.1.174:22","10/06-23:49:42.929  [**] [1:2100366:8] GPL ICMP_INFO PING *NIX [**] [Classification: Misc activity] [Priority: 3] {ICMP} 192.0.2.144 -> 10.0.1.174"],access:['198.51.100.66 - - [06/Oct/2026:23:00:12 -0500] "GET /news HTTP/1.1" 200 13782 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.36 - - [06/Oct/2026:23:00:22 -0500] "GET /courses HTTP/1.1" 200 15111 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.199 - - [06/Oct/2026:23:00:46 -0500] "GET /img/logo.png HTTP/1.1" 200 26622 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.31 - - [06/Oct/2026:23:01:31 -0500] "GET / HTTP/1.1" 200 13294 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.83 - - [06/Oct/2026:23:02:06 -0500] "GET /news HTTP/1.1" 200 17202 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.117 - - [06/Oct/2026:23:02:27 -0500] "GET /img/logo.png HTTP/1.1" 200 44254 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.22 - - [06/Oct/2026:23:02:30 -0500] "GET /css/site.css HTTP/1.1" 200 39195 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.165 - - [06/Oct/2026:23:02:32 -0500] "GET /library HTTP/1.1" 200 8505 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.53 - - [06/Oct/2026:23:02:47 -0500] "GET /courses HTTP/1.1" 200 41205 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.160 - - [06/Oct/2026:23:02:52 -0500] "GET /calendar HTTP/1.1" 200 39994 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.62 - - [06/Oct/2026:23:02:55 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.89 - - [06/Oct/2026:23:03:03 -0500] "GET / HTTP/1.1" 200 44955 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.174 - - [06/Oct/2026:23:03:06 -0500] "GET /library HTTP/1.1" 200 14023 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.191 - - [06/Oct/2026:23:03:35 -0500] "GET /library HTTP/1.1" 200 20258 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.140 - - [06/Oct/2026:23:04:07 -0500] "GET /calendar HTTP/1.1" 200 31796 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.103 - - [06/Oct/2026:23:04:24 -0500] "GET /news HTTP/1.1" 200 42602 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.74 - - [06/Oct/2026:23:04:35 -0500] "GET /news HTTP/1.1" 200 32359 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.51 - - [06/Oct/2026:23:04:50 -0500] "GET /calendar HTTP/1.1" 200 3182 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.187 - - [06/Oct/2026:23:05:00 -0500] "GET /img/logo.png HTTP/1.1" 200 4043 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.228 - - [06/Oct/2026:23:05:14 -0500] "GET /news HTTP/1.1" 200 39447 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.69 - - [06/Oct/2026:23:05:25 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.138 - - [06/Oct/2026:23:05:33 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.54 - - [06/Oct/2026:23:05:48 -0500] "GET /courses HTTP/1.1" 200 21818 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.213 - - [06/Oct/2026:23:05:59 -0500] "GET / HTTP/1.1" 200 31295 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.181 - - [06/Oct/2026:23:06:05 -0500] "GET /img/logo.png HTTP/1.1" 200 32988 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.188 - - [06/Oct/2026:23:06:41 -0500] "GET /calendar HTTP/1.1" 200 37255 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.132 - - [06/Oct/2026:23:06:51 -0500] "GET /news HTTP/1.1" 200 37590 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.102 - - [06/Oct/2026:23:06:51 -0500] "GET /css/site.css HTTP/1.1" 200 29051 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.212 - - [06/Oct/2026:23:07:05 -0500] "GET / HTTP/1.1" 200 4721 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.82 - - [06/Oct/2026:23:07:09 -0500] "GET /news HTTP/1.1" 200 4729 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.230 - - [06/Oct/2026:23:08:06 -0500] "GET /news HTTP/1.1" 200 7692 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.53 - - [06/Oct/2026:23:08:28 -0500] "GET /css/site.css HTTP/1.1" 200 21494 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.26 - - [06/Oct/2026:23:08:36 -0500] "GET /calendar HTTP/1.1" 200 16925 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.65 - - [06/Oct/2026:23:08:53 -0500] "GET /calendar HTTP/1.1" 200 21728 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.165 - - [06/Oct/2026:23:10:02 -0500] "GET /news HTTP/1.1" 200 24974 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.116 - - [06/Oct/2026:23:10:12 -0500] "GET /calendar HTTP/1.1" 200 4872 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.57 - - [06/Oct/2026:23:11:10 -0500] "GET /css/site.css HTTP/1.1" 200 3547 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.6 - - [06/Oct/2026:23:11:18 -0500] "GET /img/logo.png HTTP/1.1" 200 13483 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.103 - - [06/Oct/2026:23:11:25 -0500] "GET /css/site.css HTTP/1.1" 200 14905 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.100 - - [06/Oct/2026:23:11:32 -0500] "GET /css/site.css HTTP/1.1" 200 26454 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.236 - - [06/Oct/2026:23:12:03 -0500] "GET /css/site.css HTTP/1.1" 200 11726 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.102 - - [06/Oct/2026:23:12:29 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.104 - - [06/Oct/2026:23:12:37 -0500] "GET / HTTP/1.1" 200 47607 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.14 - - [06/Oct/2026:23:14:02 -0500] "GET /css/site.css HTTP/1.1" 200 3392 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.66 - - [06/Oct/2026:23:14:04 -0500] "GET /library HTTP/1.1" 200 26355 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.247 - - [06/Oct/2026:23:14:08 -0500] "GET / HTTP/1.1" 200 28185 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.15 - - [06/Oct/2026:23:14:12 -0500] "GET /courses HTTP/1.1" 200 10812 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.33 - - [06/Oct/2026:23:14:45 -0500] "GET /library HTTP/1.1" 200 43019 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.187 - - [06/Oct/2026:23:14:46 -0500] "GET /news HTTP/1.1" 200 11091 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.43 - - [06/Oct/2026:23:16:44 -0500] "GET /courses HTTP/1.1" 200 11273 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.237 - - [06/Oct/2026:23:17:32 -0500] "GET /courses HTTP/1.1" 200 20866 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.23 - - [06/Oct/2026:23:18:22 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"',`198.51.100.23 - - [06/Oct/2026:23:18:24 -0500] "POST /login?user=admin'%20OR%201=1-- HTTP/1.1" 401 512 "-" "python-requests/2.31"`,'198.51.100.23 - - [06/Oct/2026:23:18:25 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:27 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:28 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:31 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"',`198.51.100.23 - - [06/Oct/2026:23:18:34 -0500] "POST /login?user=admin'%20OR%201=1-- HTTP/1.1" 401 512 "-" "python-requests/2.31"`,'198.51.100.23 - - [06/Oct/2026:23:18:35 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:37 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:39 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:41 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:43 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:44 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"',`198.51.100.23 - - [06/Oct/2026:23:18:45 -0500] "POST /login?user=admin'%20OR%201=1-- HTTP/1.1" 401 512 "-" "python-requests/2.31"`,'198.51.100.23 - - [06/Oct/2026:23:18:48 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:51 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:52 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:53 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:54 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:55 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:57 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:18:59 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"',`198.51.100.23 - - [06/Oct/2026:23:19:02 -0500] "POST /login?user=admin'%20OR%201=1-- HTTP/1.1" 401 512 "-" "python-requests/2.31"`,'198.51.100.23 - - [06/Oct/2026:23:19:03 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:19:05 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:19:07 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"',`198.51.100.23 - - [06/Oct/2026:23:19:09 -0500] "POST /login?user=admin'%20OR%201=1-- HTTP/1.1" 401 512 "-" "python-requests/2.31"`,'198.51.100.23 - - [06/Oct/2026:23:19:11 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','198.51.100.23 - - [06/Oct/2026:23:19:13 -0500] "POST /login HTTP/1.1" 401 512 "-" "python-requests/2.31"','203.0.113.250 - - [06/Oct/2026:23:19:23 -0500] "GET /courses HTTP/1.1" 200 34727 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.242 - - [06/Oct/2026:23:19:34 -0500] "GET /courses HTTP/1.1" 200 31500 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.218 - - [06/Oct/2026:23:19:45 -0500] "GET /news HTTP/1.1" 200 39162 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.21 - - [06/Oct/2026:23:20:04 -0500] "GET /news HTTP/1.1" 200 21859 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.229 - - [06/Oct/2026:23:20:10 -0500] "GET /calendar HTTP/1.1" 200 40931 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.29 - - [06/Oct/2026:23:20:30 -0500] "GET /news HTTP/1.1" 200 12526 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.52 - - [06/Oct/2026:23:20:36 -0500] "GET /img/logo.png HTTP/1.1" 200 9482 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.56 - - [06/Oct/2026:23:21:09 -0500] "GET /calendar HTTP/1.1" 200 16156 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.172 - - [06/Oct/2026:23:21:44 -0500] "GET / HTTP/1.1" 200 20770 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.223 - - [06/Oct/2026:23:22:06 -0500] "GET /news HTTP/1.1" 200 6032 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.158 - - [06/Oct/2026:23:22:06 -0500] "GET /img/logo.png HTTP/1.1" 200 9547 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.203 - - [06/Oct/2026:23:23:29 -0500] "GET /courses HTTP/1.1" 200 9786 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.239 - - [06/Oct/2026:23:24:35 -0500] "GET /library HTTP/1.1" 200 15985 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.123 - - [06/Oct/2026:23:24:40 -0500] "GET / HTTP/1.1" 200 34425 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.66 - - [06/Oct/2026:23:24:56 -0500] "GET /courses HTTP/1.1" 200 36250 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.121 - - [06/Oct/2026:23:25:47 -0500] "GET /library HTTP/1.1" 200 22536 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.174 - - [06/Oct/2026:23:25:54 -0500] "GET / HTTP/1.1" 200 20372 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.184 - - [06/Oct/2026:23:29:02 -0500] "GET /courses HTTP/1.1" 200 18315 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.192 - - [06/Oct/2026:23:29:34 -0500] "GET / HTTP/1.1" 200 21420 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.200 - - [06/Oct/2026:23:29:37 -0500] "GET / HTTP/1.1" 200 10675 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.131 - - [06/Oct/2026:23:29:50 -0500] "GET /calendar HTTP/1.1" 200 24144 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.27 - - [06/Oct/2026:23:30:01 -0500] "GET /news HTTP/1.1" 200 38987 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.57 - - [06/Oct/2026:23:30:28 -0500] "GET / HTTP/1.1" 200 12450 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.70 - - [06/Oct/2026:23:30:57 -0500] "GET /news HTTP/1.1" 200 46940 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.195 - - [06/Oct/2026:23:31:11 -0500] "GET /news HTTP/1.1" 200 18620 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.74 - - [06/Oct/2026:23:31:26 -0500] "GET /img/logo.png HTTP/1.1" 200 23469 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.115 - - [06/Oct/2026:23:31:28 -0500] "GET /news HTTP/1.1" 200 42476 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.195 - - [06/Oct/2026:23:32:18 -0500] "GET /library HTTP/1.1" 200 1433 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.22 - - [06/Oct/2026:23:32:22 -0500] "GET /calendar HTTP/1.1" 200 5161 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.2 - - [06/Oct/2026:23:34:21 -0500] "GET /courses HTTP/1.1" 200 33721 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.159 - - [06/Oct/2026:23:34:25 -0500] "GET /news HTTP/1.1" 200 4253 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.187 - - [06/Oct/2026:23:34:35 -0500] "GET /css/site.css HTTP/1.1" 200 31090 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.55 - - [06/Oct/2026:23:34:41 -0500] "GET /img/logo.png HTTP/1.1" 200 37922 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.146 - - [06/Oct/2026:23:34:55 -0500] "GET /calendar HTTP/1.1" 200 40579 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.69 - - [06/Oct/2026:23:34:58 -0500] "GET /css/site.css HTTP/1.1" 200 45113 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.115 - - [06/Oct/2026:23:35:43 -0500] "GET /calendar HTTP/1.1" 200 2319 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.5 - - [06/Oct/2026:23:35:48 -0500] "GET / HTTP/1.1" 200 11433 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.113 - - [06/Oct/2026:23:36:29 -0500] "GET /courses HTTP/1.1" 200 3659 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.7 - - [06/Oct/2026:23:36:51 -0500] "GET /css/site.css HTTP/1.1" 200 42427 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.11 - - [06/Oct/2026:23:37:39 -0500] "GET /calendar HTTP/1.1" 200 20740 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.18 - - [06/Oct/2026:23:37:54 -0500] "GET /img/logo.png HTTP/1.1" 200 18730 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.107 - - [06/Oct/2026:23:38:40 -0500] "GET /img/logo.png HTTP/1.1" 200 43939 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.70 - - [06/Oct/2026:23:39:38 -0500] "GET /courses HTTP/1.1" 200 25004 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.52 - - [06/Oct/2026:23:39:57 -0500] "GET /calendar HTTP/1.1" 200 23217 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.158 - - [06/Oct/2026:23:40:03 -0500] "GET /news HTTP/1.1" 200 31020 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.82 - - [06/Oct/2026:23:40:43 -0500] "GET / HTTP/1.1" 200 26296 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.187 - - [06/Oct/2026:23:41:09 -0500] "GET /calendar HTTP/1.1" 200 12449 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.119 - - [06/Oct/2026:23:41:36 -0500] "GET /calendar HTTP/1.1" 200 40730 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.228 - - [06/Oct/2026:23:42:39 -0500] "GET /css/site.css HTTP/1.1" 200 37061 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.175 - - [06/Oct/2026:23:42:43 -0500] "GET /news HTTP/1.1" 200 10811 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.212 - - [06/Oct/2026:23:42:54 -0500] "GET /courses HTTP/1.1" 200 40796 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','192.0.2.240 - - [06/Oct/2026:23:43:43 -0500] "GET /img/logo.png HTTP/1.1" 200 30436 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.217 - - [06/Oct/2026:23:44:27 -0500] "GET /img/logo.png HTTP/1.1" 200 44041 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.142 - - [06/Oct/2026:23:44:42 -0500] "GET /courses HTTP/1.1" 200 16827 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.166 - - [06/Oct/2026:23:46:11 -0500] "GET /news HTTP/1.1" 200 4385 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','198.51.100.121 - - [06/Oct/2026:23:46:29 -0500] "GET /courses HTTP/1.1" 200 39122 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.210 - - [06/Oct/2026:23:46:54 -0500] "GET /css/site.css HTTP/1.1" 200 20792 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','198.51.100.174 - - [06/Oct/2026:23:47:14 -0500] "GET /css/site.css HTTP/1.1" 200 5114 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.6 - - [06/Oct/2026:23:48:06 -0500] "POST /login HTTP/1.1" 401 512 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.218 - - [06/Oct/2026:23:48:25 -0500] "GET /img/logo.png HTTP/1.1" 200 44700 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.76 - - [06/Oct/2026:23:48:43 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"','203.0.113.240 - - [06/Oct/2026:23:48:44 -0500] "GET /calendar HTTP/1.1" 200 44276 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.15 - - [06/Oct/2026:23:49:04 -0500] "GET /img/logo.png HTTP/1.1" 200 18957 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.134 - - [06/Oct/2026:23:50:22 -0500] "GET /css/site.css HTTP/1.1" 200 44748 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.52 - - [06/Oct/2026:23:50:52 -0500] "GET / HTTP/1.1" 200 28225 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.154 - - [06/Oct/2026:23:52:08 -0500] "POST /login HTTP/1.1" 302 512 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.248 - - [06/Oct/2026:23:52:24 -0500] "GET / HTTP/1.1" 200 382 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.56 - - [06/Oct/2026:23:52:57 -0500] "GET /courses HTTP/1.1" 200 33526 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.33 - - [06/Oct/2026:23:53:11 -0500] "GET /news HTTP/1.1" 200 5652 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','192.0.2.231 - - [06/Oct/2026:23:54:09 -0500] "GET /courses HTTP/1.1" 200 32031 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.103 - - [06/Oct/2026:23:54:42 -0500] "GET /courses HTTP/1.1" 200 566 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.60 - - [06/Oct/2026:23:54:44 -0500] "GET /library HTTP/1.1" 200 3075 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.2 - - [06/Oct/2026:23:54:50 -0500] "POST /login HTTP/1.1" 401 512 "-" "Mozilla/5.0 (X11; Linux x86_64)"','203.0.113.97 - - [06/Oct/2026:23:55:31 -0500] "GET /news HTTP/1.1" 200 23164 "-" "Mozilla/5.0 (X11; Linux x86_64)"','192.0.2.91 - - [06/Oct/2026:23:56:17 -0500] "GET / HTTP/1.1" 200 5384 "-" "Mozilla/5.0 (X11; Linux x86_64)"','198.51.100.16 - - [06/Oct/2026:23:57:09 -0500] "GET /courses HTTP/1.1" 200 25278 "-" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)"','203.0.113.159 - - [06/Oct/2026:23:57:10 -0500] "GET /calendar HTTP/1.1" 200 18625 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"'],listening:[{proto:"tcp",local:"0.0.0.0",port:22},{proto:"udp",local:"127.0.0.53",port:53},{proto:"tcp",local:"0.0.0.0",port:80},{proto:"tcp",local:"0.0.0.0",port:443},{proto:"tcp",local:"127.0.0.1",port:3306},{proto:"tcp",local:"0.0.0.0",port:6667}]};function s0(e){let t=e.port==="any"?"Anywhere":`${e.port}${e.proto!=="any"?"/"+e.proto:""}`,s=e.from==="any"?"Anywhere":e.from;return`${t.padEnd(22)} ${(e.action==="allow"?"ALLOW IN":"DENY IN").padEnd(11)} ${s}`}var G0={enabled:!0,defIn:"deny",rules:[{action:"allow",from:"any",port:80,proto:"tcp"},{action:"allow",from:"any",port:443,proto:"tcp"},{action:"allow",from:"10.0.5.0/24",port:22,proto:"tcp"}]};var X=(e,t=420,s="root")=>({type:"file",content:e,mode:t,owner:s}),Z=(e,t=493,s="root")=>({type:"dir",children:e,mode:t,owner:s});function ht(e){return Z({home:Z({defender:Z({README:X(e.readme,420,"defender"),".shift_note":X(e.hidden,420,"defender"),".bashrc":X(`# ~/.bashrc
+alias ll='ls -l'
+`,420,"defender"),"notes.txt":X(`Nothing important here.
+The day shift says the real note is hidden.
+`,420,"defender"),backup:Z({"passwords.txt":X(`Backup of old Wi-Fi and printer passwords (2024)
+library-printer: Pr1nt3r-2024!
+staff-wifi: Byt3v1ll3-Staff
+`,438,"defender"),"site-config.tar.gz":X("(binary file)",420,"defender")},493,"defender")},488,"defender")}),etc:Z({hostname:X(e.host+`
+`),hosts:X(`127.0.0.1	localhost
+${e.ip}	${e.host}.byteville.lan ${e.host}
+10.0.1.53	dns01.byteville.lan dns01
+10.0.1.1	gateway.byteville.lan gateway
+`),"os-release":X(`NAME="Ubuntu"
+VERSION="24.04 LTS (Noble Numbat)"
+ID=ubuntu
+`),shadow:X("(protected)",416),byteville:Z({"allowed-services.txt":X(`# Services allowed to listen on web01
+#
+# PORT  PROTO  WHAT
+22      tcp    SSH (admins only)
+80      tcp    Website (HTTP)
+443     tcp    Website (HTTPS)
+3306    tcp    Database, localhost (127.0.0.1) only
+53      udp    Local DNS resolver, 127.0.0.53 only
+#
+# Anything else listening is NOT approved.
+`)})}),var:Z({log:Z({"auth.log":X(e.authLog.join(`
+`)+`
+`,416,"syslog"),"ufw.log":X(e.ufwLog.join(`
+`)+`
+`,416,"syslog"),ids:Z({"alerts.log":X(e.alerts.join(`
+`)+`
+`,420)}),nginx:Z({"access.log":X(e.access.join(`
+`)+`
+`,420,"www-data"),"error.log":X("",420,"www-data")})}),www:Z({html:Z({"index.html":X(`<!doctype html><title>Byteville School</title><h1>Welcome to Byteville School</h1>
+`,420,"www-data")})})}),tmp:Z({},511)})}var ut={21:"vsftpd",22:"sshd",23:"in.telnetd",53:"systemd-resolve",80:"nginx",443:"nginx",3306:"mysqld",3389:"xrdp",5900:"x11vnc",6667:"ngircd",8081:"python3"},o0={ssh:22,http:80,https:443,ftp:21,telnet:23,dns:53,mysql:3306},mt=`Commands you can use here:
+  pwd  ls [-a -l]  cd DIR  cat FILE  head/tail [-n N]  find DIR -name PAT
+  grep [-i -v -c -o -n] PATTERN [FILE]  wc -l  sort [-n -r -u]  uniq [-c]
+  cut -d C -f N   awk '{print $1}'   echo  history  clear
+  whoami  id  hostname [-I]  uname -a  date
+  ifconfig  ip a  ping [-c N] HOST  ss -tuln  netstat -tuln
+  sudo CMD   ufw ...   chmod MODE FILE
+  mission  hint  submit ANSWER  reset
+Use | to send one command's output into the next, e.g.  grep Failed auth.log | wc -l
+Tip: press Tab to finish a file name, and the Up arrow for your last command.`,_0={ls:`ls - list directory contents
+  -a  also show hidden files (names starting with .)
+  -l  long format: permissions, owner, size, date`,cd:"cd - change directory.  cd /var/log   cd ..   cd ~",cat:"cat - print files.  cat README",grep:`grep - print lines that match a pattern
+  -i ignore case   -v lines that do NOT match   -c count matching lines
+  -o print only the matching part   -n show line numbers
+  Example: grep 'Failed password' /var/log/auth.log`,wc:"wc - count.  wc -l counts lines.  Example: cat file | wc -l",sort:"sort - sort lines.  -n numbers   -r reverse   -u unique",uniq:"uniq - remove repeated neighbor lines.  -c puts a count in front.  Use after sort.",cut:"cut - pick fields.  cut -d ' ' -f 1  (field 1, split on spaces)",awk:"awk - pick columns split on spaces.  awk '{print $1}'   awk '{print $1, $9}'   awk -F: '{print $1}'",head:"head - first lines.  head -n 5 FILE",tail:"tail - last lines.  tail -n 5 FILE",find:"find - search for files.  find / -name '*.log'",ifconfig:"ifconfig - show network interfaces and their IP addresses",ip:"ip a - show addresses for each network interface",ss:"ss -tuln - show listening ports.  t=TCP u=UDP l=listening n=numbers.  Add p for process names.",ping:"ping HOST - check if a host answers.  ping -c 3 10.0.1.1",ufw:`ufw - Uncomplicated Firewall (needs sudo)
+  sudo ufw status [verbose|numbered]
+  sudo ufw enable | disable
+  sudo ufw default deny incoming
+  sudo ufw allow 443/tcp          sudo ufw deny 23
+  sudo ufw allow from 10.0.5.0/24 to any port 22 proto tcp
+  sudo ufw deny from 203.0.113.9
+  sudo ufw insert 1 deny from 203.0.113.9
+  sudo ufw delete 2               sudo ufw reset
+  Rules are checked top to bottom. First match wins.`,chmod:`chmod - change permissions.  chmod 600 FILE  (owner read+write, nobody else)
+  Digits: owner, group, others.  4=read 2=write 1=execute.  Also: chmod go-rw FILE`,sudo:"sudo - run one command as the administrator (root).  sudo ufw status",submit:"submit ANSWER - send your answer to the class server.  For setup levels, just type submit."};function ft(e){let t=[],s="",o=null,n=!1;for(let r=0;r<e.length;r++){let i=e[r];if(o){i===o?o=null:i==="\\"&&o==='"'&&r+1<e.length?s+=e[++r]:s+=i;continue}if(i==='"'||i==="'"){o=i,n=!0;continue}if(i==="\\"&&r+1<e.length){s+=e[++r],n=!0;continue}if(/\s/.test(i)){(s||n)&&(t.push(s),s="",n=!1);continue}s+=i,n=!0}if(o)throw new Error("unexpected end of line: missing closing quote");return(s||n)&&t.push(s),t}function Tt(e){let t=[],s="",o=null;for(let n of e){if(o){n===o&&(o=null),s+=n;continue}if(n==='"'||n==="'"){o=n,s+=n;continue}if(n==="|"){t.push(s),s="";continue}s+=n}return t.push(s),t.map(n=>n.trim())}var ge=e=>{let t=e.split(`
+`);return t.length&&t[t.length-1]===""&&t.pop(),t},wt=e=>new RegExp("^"+e.replace(/[.+^${}()|[\]\\]/g,"\\$&").replace(/\*/g,".*").replace(/\?/g,".")+"$");function bt(e){let t=e.mode,s=o=>(o&4?"r":"-")+(o&2?"w":"-")+(o&1?"x":"-");return(e.type==="dir"?"d":"-")+s(t>>6)+s(t>>3&7)+s(t&7)}function j0(e){let t=ht(e.data),s="/home/defender",o=s,n=[],{data:r}=e,i=l=>{(l==="~"||l.startsWith("~/"))&&(l=s+l.slice(1));let d=l.startsWith("/")?l:o+"/"+l,a=[];for(let g of d.split("/"))!g||g==="."||(g===".."?a.pop():a.push(g));return"/"+a.join("/")},c=l=>{let d=t;for(let a of i(l).split("/").filter(Boolean)){if(d.type!=="dir"||!d.children[a])return null;d=d.children[a]}return d},u=l=>l===s?"~":l.startsWith(s+"/")?"~"+l.slice(s.length):l,w=(l,d)=>d||l.owner==="defender"||(l.mode&4)!==0||l.mode>>3&4&&l.owner==="syslog";function O(l,d){let a=c(l);if(!a)throw new Error(`${l}: No such file or directory`);if(a.type==="dir")throw new Error(`${l}: Is a directory`);if(l.includes("shadow")&&!d)throw new Error(`${l}: Permission denied`);if(!w(a,d))throw new Error(`${l}: Permission denied`);return l.includes("shadow")?`root:*:19950:0:99999:7:::
+defender:$y$j9T$(hidden for training)::19950:0:99999:7:::
+`:a.content}let T=(l,d)=>{let a=e.ufw;if(!a.enabled)return"Status: inactive";let g=`Status: active
+`;return d&&(g+=`Logging: on (low)
+Default: ${a.defIn} (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+`),g+=`
+     To                         Action      From
+     --                         ------      ----
+`,g+=a.rules.map((h,P)=>(l?`[${String(P+1).padStart(2)}] `:"     ")+s0(h)).join(`
+`),g.replace(/\n$/,"")};function v(l){var h;let d=l[0];if(d==="reject"&&(d="deny"),d!=="allow"&&d!=="deny")return"ERROR: Invalid syntax. Start with allow or deny.";let a=l.slice(1);if(!a.length)return"ERROR: Invalid syntax";let g={action:d,from:"any",port:"any",proto:"any"};if(a[0]!=="from"&&a[0]!=="proto"&&a[0]!=="to"&&a[0]!=="in"){if(a.length>1)return"ERROR: Invalid syntax";let[P,m]=a[0].split("/"),p=o0[P]!==void 0?o0[P]:/^\d+$/.test(P)?Number(P):NaN;return p>=0&&p<=65535?m&&m!=="tcp"&&m!=="udp"?`ERROR: Unsupported protocol '${m}'`:(g.port=p,g.proto=m||"any",g):`ERROR: Bad port '${P}'`}for(let P=0;P<a.length;P++){let m=a[P],p=a[P+1];if(m!=="in"){if(p===void 0)return"ERROR: Invalid syntax";if(m==="from"){if(!be(p))return`ERROR: Bad source address '${p}'`;g.from=p,P++}else if(m==="to"){if(p!=="any"&&p!==r.ip)return`ERROR: Bad destination address '${p}'. Use: to any`;P++}else if(m==="port"){let k=(h=o0[p])!=null?h:/^\d+$/.test(p)?Number(p):NaN;if(!(k>=0&&k<=65535))return`ERROR: Bad port '${p}'`;g.port=k,P++}else if(m==="proto"){if(p!=="tcp"&&p!=="udp")return`ERROR: Unsupported protocol '${p}'`;g.proto=p,P++}else return`ERROR: Invalid syntax near '${m}'`}}return g}let N=(l,d)=>l.action===d.action&&l.from===d.from&&l.port===d.port&&l.proto===d.proto;function A(l,d){if(!d)return"ERROR: You need to be root to run this script. Try: sudo ufw "+l.join(" ");let a=e.ufw,[g,...h]=l;switch(g){case void 0:return _0.ufw;case"status":return T(h.includes("numbered"),h.includes("verbose"));case"enable":return a.enabled=!0,"Firewall is active and enabled on system startup";case"disable":return a.enabled=!1,"Firewall stopped and disabled on system startup";case"reload":return a.enabled?"Firewall reloaded":"Firewall not enabled (skipping reload)";case"reset":return a.enabled=!1,a.defIn="deny",a.rules=[],`Resetting all rules to installed defaults.
+Firewall stopped and disabled on system startup`;case"default":{let P=h[0]==="reject"?"deny":h[0];if(P!=="allow"&&P!=="deny")return"ERROR: Invalid syntax. Example: sudo ufw default deny incoming";let m=h[1]||"incoming";return m==="outgoing"||m==="routed"?`Default ${m} policy changed to '${P}'
+(be sure to update your rules accordingly)`:m!=="incoming"?"ERROR: Invalid syntax":(a.defIn=P,`Default incoming policy changed to '${P}'
+(be sure to update your rules accordingly)`)}case"allow":case"deny":case"reject":{let P=v(l);return typeof P=="string"?P:a.rules.some(m=>N(m,P))?"Skipping adding existing rule":(a.rules.push(P),"Rule added")}case"insert":{let P=Number(h[0]);if(!Number.isInteger(P)||P<1||P>a.rules.length+1)return`ERROR: Invalid position '${h[0]}'`;if(a.rules.length===0)return"ERROR: Cannot insert into empty chain. Use: sudo ufw "+h.slice(1).join(" ");let m=v(h.slice(1));return typeof m=="string"?m:a.rules.some(p=>N(p,m))?"Skipping inserting existing rule":(a.rules.splice(P-1,0,m),"Rule inserted")}case"delete":{if(/^\d+$/.test(h[0]||"")){let p=Number(h[0]);if(p<1||p>a.rules.length)return"ERROR: Could not find rule '"+p+"'";let[k]=a.rules.splice(p-1,1);return`Deleting:
+ ${s0(k).replace(/\s+/g," ")}
+Rule deleted`}let P=v(h);if(typeof P=="string")return P;let m=a.rules.findIndex(p=>N(p,P));return m<0?"Could not delete non-existent rule":(a.rules.splice(m,1),"Rule deleted")}default:return"ERROR: Invalid syntax. Try: man ufw"}}function S(l,d){let[a,g]=l;if(!a||!g)return"chmod: missing operand. Example: chmod 600 FILE";let h=c(g);if(!h)return`chmod: cannot access '${g}': No such file or directory`;if(h.owner!=="defender"&&!d)return`chmod: changing permissions of '${g}': Operation not permitted`;if(/^[0-7]{3,4}$/.test(a))return h.mode=parseInt(a.slice(-3),8),"";for(let P of a.split(",")){let m=P.match(/^([ugoa]*)([+\-=])([rwx]*)$/);if(!m)return`chmod: invalid mode: '${a}'`;let p=m[1]||"a",k=(m[3].includes("r")?4:0)|(m[3].includes("w")?2:0)|(m[3].includes("x")?1:0),$=[...new Set((p.includes("a")?"ugo":p).split(""))].map(C=>C==="u"?6:C==="g"?3:0);for(let C of $)m[2]==="+"?h.mode|=k<<C:m[2]==="-"?h.mode&=~(k<<C):h.mode=h.mode&~(7<<C)|k<<C}return""}function D(l){let d=l.filter(p=>p.startsWith("-")).join(""),a=d.includes("a"),g=d.includes("l"),h=l.filter(p=>!p.startsWith("-")),P=h.length?h:["."],m=[];for(let p of P){let k=c(p);if(!k){m.push(`ls: cannot access '${p}': No such file or directory`);continue}if(k.type==="dir"&&!(k.mode&4)&&k.owner!=="defender"){m.push(`ls: cannot open directory '${p}': Permission denied`);continue}let C=(k.type==="dir"?Object.entries(k.children).sort((E,G)=>E[0].replace(/^\./,"").localeCompare(G[0].replace(/^\./,""))):[[p,k]]).filter(([E])=>a||!E.startsWith("."));if(k.type==="dir"&&a&&C.unshift([".",k],["..",k]),P.length>1&&m.push(p+":"),g){k.type==="dir"&&m.push(`total ${C.length*4}`);for(let[E,G]of C){let Q=G.type==="dir"?4096:G.content.length;m.push(`${bt(G)} 1 ${G.owner.padEnd(8)} ${(G.owner==="syslog"?"adm":G.owner).padEnd(8)} ${String(Q).padStart(6)} Oct  6 21:04 ${E}${G.type==="dir"&&![".",".."].includes(E)?"/":""}`)}}else m.push(C.map(([E,G])=>E+(G.type==="dir"&&![".",".."].includes(E)?"/":"")).join("  "))}return m.join(`
+`)}function B(l){let d=".",a=null,g=null;for(let p=0;p<l.length;p++)l[p]==="-name"?a=wt(l[++p]||"*"):l[p]==="-type"?g=l[++p]:d=l[p];let h=c(d);if(!h)return`find: '${d}': No such file or directory`;let P=[],m=(p,k,$)=>{if((!a||a.test($))&&(!g||g==="d"==(p.type==="dir"))&&P.push(k),p.type==="dir")for(let[C,E]of Object.entries(p.children))m(E,(k==="/"?"":k)+"/"+C,C)};return m(h,d,d.split("/").pop()||d),P.join(`
+`)}function q(l,d,a){let g=new Set,h=[];for(let $ of l)/^-[a-zA-Z]+$/.test($)&&!h.length?$.slice(1).split("").forEach(C=>g.add(C)):h.push($);let P=h.shift();if(P===void 0)return"Usage: grep [-i -v -c -o -n] PATTERN [FILE]";let m;try{m=new RegExp(P,g.has("i")?"gi":"g")}catch{m=new RegExp(P.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),g.has("i")?"gi":"g")}let p=h.length?h.map($=>[$,O($,a)]):[["",d!=null?d:""]],k=[];for(let[$,C]of p){let E=0;ge(C).forEach((G,Q)=>{if(m.lastIndex=0,m.test(G)===g.has("v")||(E++,g.has("c")))return;let i0=(h.length>1?$+":":"")+(g.has("n")?`${Q+1}:`:"");g.has("o")&&!g.has("v")?(m.lastIndex=0,(G.match(m)||[]).forEach(X0=>k.push(i0+X0))):k.push(i0+G)}),g.has("c")&&k.push((h.length>1?$+":":"")+E)}return k.join(`
+`)}function _(l,d,a){let g=l.filter(h=>!h.startsWith("-"));return g.length?g.map(h=>O(h,a)).join(""):d!=null?d:""}function x(l,d,a,g){let h=10,P=[];for(let p=0;p<l.length;p++)l[p]==="-n"?h=Number(l[++p]):/^-\d+$/.test(l[p])?h=Number(l[p].slice(1)):P.push(l[p]);if(!Number.isFinite(h)||h<0)return`${g?"tail":"head"}: invalid number of lines`;let m=ge(_(P,d,a));return(g?m.slice(Math.max(0,m.length-h)):m.slice(0,h)).join(`
+`)}function I(l){let d=4,a=[];for(let C=0;C<l.length;C++)l[C]==="-c"?d=Math.min(10,Math.max(1,Number(l[++C])||4)):a.push(l[C]);let g=a[0];if(!g)return"ping: usage error: Destination address required";let P={localhost:"127.0.0.1",[r.host]:r.ip,gateway:"10.0.1.1",dns01:"10.0.1.53","gateway.byteville.lan":"10.0.1.1","dns01.byteville.lan":"10.0.1.53"}[g]||g,m={"127.0.0.1":.04,[r.ip]:.05,"10.0.1.1":.6,"10.0.1.53":.9,"10.0.5.20":1.4};if(!/^\d+\.\d+\.\d+\.\d+$/.test(P))return`ping: ${g}: Temporary failure in name resolution`;let p=`PING ${g} (${P}) 56(84) bytes of data.`;if(m[P]===void 0)return P.startsWith("10.")?`${p}
+
+--- ${g} ping statistics ---
+${d} packets transmitted, 0 received, 100% packet loss, time ${d*1e3-1}ms`:`${p}
+ping: connect: Network is unreachable
+(This training server has no Internet connection.)`;let k=m[P],$=Array.from({length:d},(C,E)=>`64 bytes from ${P}: icmp_seq=${E+1} ttl=64 time=${(k+E*37%10/40).toFixed(3)} ms`);return`${p}
+${$.join(`
+`)}
+
+--- ${g} ping statistics ---
+${d} packets transmitted, ${d} received, 0% packet loss, time ${d*1e3-1}ms`}function F(){let l="fe80::"+r.mac.split(":").slice(3).join("").replace(/^0+/,"")+":"+r.mac.split(":")[1]+"ff:fe"+r.mac.split(":")[2];return`eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet ${r.ip}  netmask 255.255.255.0  broadcast 10.0.1.255
+        inet6 ${l}  prefixlen 64  scopeid 0x20<link>
+        ether ${r.mac}  txqueuelen 1000  (Ethernet)
+        RX packets 184522  bytes 211043312 (211.0 MB)
+        TX packets 120391  bytes 98410211 (98.4 MB)
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)`}function L(){return`1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether ${r.mac} brd ff:ff:ff:ff:ff:ff
+    inet ${r.ip}/24 brd 10.0.1.255 scope global eth0
+       valid_lft forever preferred_lft forever`}function M(l){let d=l.join(""),a=d.includes("p"),g="Netid State  Recv-Q Send-Q  Local Address:Port   Peer Address:Port"+(a?" Process":""),h=r.listening.filter(P=>d.includes("t")&&P.proto==="tcp"||d.includes("u")&&P.proto==="udp"||!d.includes("t")&&!d.includes("u")).map(P=>`${P.proto.padEnd(5)} ${(P.proto==="udp"?"UNCONN":"LISTEN").padEnd(6)} 0      ${P.proto==="udp"?"0     ":"4096  "}  ${(P.local+":"+P.port).padStart(18)}   ${"0.0.0.0:*".padStart(15)}`+(a?`   users:(("${ut[P.port]||"unknown"}",pid=${700+P.port%300},fd=${3+P.port%7}))`:""));return d.includes("l")?[g,...h].join(`
+`):g+`
+(no established connections right now)`}async function b(l,d,a=!1){var P;let[g,...h]=l;switch(g){case void 0:case"":return"";case"help":return mt;case"man":return h[0]?_0[h[0]]||`No manual entry for ${h[0]}`:"What manual page do you want? Example: man grep";case"pwd":return o;case"whoami":return a?"root":"defender";case"id":return a?"uid=0(root) gid=0(root) groups=0(root)":"uid=1000(defender) gid=1000(defender) groups=1000(defender),4(adm),27(sudo)";case"hostname":return h.includes("-I")?r.ip:r.host;case"uname":return h.includes("-a")?`Linux ${r.host} 6.8.0-45-generic #45-Ubuntu SMP x86_64 GNU/Linux`:"Linux";case"date":return"Tue Oct  6 23:58:12 CDT 2026";case"echo":return h.join(" ");case"clear":return e.onClear(),"";case"history":return n.map((m,p)=>`${String(p+1).padStart(5)}  ${m}`).join(`
+`);case"ls":return D(h);case"ll":return D(["-l",...h]);case"cd":{let m=h[0]||"~",p=c(m);return p?p.type!=="dir"?`cd: ${m}: Not a directory`:(o=i(m),""):`cd: ${m}: No such file or directory`}case"cat":return h.length?h.map(m=>O(m,a)).join("").replace(/\n$/,""):(d!=null?d:"").replace(/\n$/,"");case"head":return x(h,d,a,!1);case"tail":return x(h,d,a,!0);case"grep":return q(h,d,a);case"wc":{let m=_(h,d,a),p=h.filter(Q=>!Q.startsWith("-")),k=ge(m).length,$=m.split(/\s+/).filter(Boolean).length,C=m.length,E=h.filter(Q=>Q.startsWith("-")).join("");return(E.includes("l")||E.includes("w")||E.includes("c")?[E.includes("l")?k:null,E.includes("w")?$:null,E.includes("c")?C:null].filter(Q=>Q!==null):[k,$,C]).join(" ")+(p.length?" "+p.join(" "):"")}case"sort":{let m=h.filter(k=>k.startsWith("-")).join(""),p=ge(_(h,d,a));return m.includes("n")?p.sort((k,$)=>(parseFloat(k)||0)-(parseFloat($)||0)||k.localeCompare($)):p.sort(),m.includes("r")&&p.reverse(),m.includes("u")&&(p=p.filter((k,$)=>$===0||k!==p[$-1])),p.join(`
+`)}case"uniq":{let m=h.includes("-c"),p=ge(_(h,d,a)),k=[];for(let $=0;$<p.length;){let C=$;for(;C<p.length&&p[C]===p[$];)C++;k.push(m?`${String(C-$).padStart(7)} ${p[$]}`:p[$]),$=C}return k.join(`
+`)}case"cut":{let m="	",p=[],k=[];for(let $=0;$<h.length;$++){let C=h[$];C==="-d"?m=(P=h[++$])!=null?P:"	":C.startsWith("-d")?m=C.slice(2):C==="-f"?p=(h[++$]||"").split(",").map(Number):C.startsWith("-f")?p=C.slice(2).split(",").map(Number):k.push(C)}return!p.length||p.some($=>!($>=1))?"cut: you must specify a list of fields, like -f 1":ge(_(k,d,a)).map($=>{let C=$.split(m);return p.map(E=>{var G;return(G=C[E-1])!=null?G:""}).join(m)}).join(`
+`)}case"awk":{let m=/\s+/,p=[];for(let E=0;E<h.length;E++)h[E]==="-F"?m=h[++E]:h[E].startsWith("-F")?m=h[E].slice(2):p.push(h[E]);let $=(p.shift()||"").match(/^\{\s*print\s+(.*?)\s*;?\s*\}$/);if(!$)return"awk: this trainer understands  awk '{print $1}'  and  awk '{print $1, $3}'";let C=$[1].split(",").map(E=>E.trim());return ge(_(p,d,a)).map(E=>{let G=typeof m=="string"?E.split(m):E.trim().split(m);return C.map(Q=>{var Be;return Q==="$0"?E:Q==="$NF"?G[G.length-1]:/^\$\d+$/.test(Q)?(Be=G[Number(Q.slice(1))-1])!=null?Be:"":Q.replace(/^"|"$/g,"")}).join(" ")}).join(`
+`)}case"find":return B(h);case"ifconfig":return F();case"ip":return["a","addr","address"].includes(h[0])?L():h[0]==="route"||h[0]==="r"?`default via 10.0.1.1 dev eth0 proto static
+10.0.1.0/24 dev eth0 proto kernel scope link src ${r.ip}`:"Usage: ip a   or   ip route";case"ping":return I(h);case"ss":case"netstat":return M(h);case"ufw":return A(h,a);case"chmod":return S(h,a);case"sudo":return h.length?b(h,d,!0):"usage: sudo COMMAND";case"mission":return e.onMission();case"hint":return e.onHint();case"submit":return await e.onSubmit(h.join(" "));case"reset":return e.onReset(),"";case"exit":case"logout":return"You are on shift. Use the Back button to leave this level.";case"nano":case"vi":case"vim":return`${g}: editors are turned off on this training server. Use cat to read files.`;case"rm":return"rm: this training server keeps all evidence. Nothing was deleted.";case"ssh":case"nmap":case"nc":case"curl":case"wget":return`${g}: not available on this training server.`;default:return`${g}: command not found. Type help to see what you can use.`}}return{history:n,fileMode:l=>{let d=c(l);return d?d.mode:null},prompt:()=>`defender@${r.host}:${u(o)}$ `,async run(l){let d=l.trim();if(!d)return"";n.push(d),n.length>200&&n.shift();try{let a=null;for(let g of Tt(d)){if(!g)throw new Error("syntax error near unexpected token `|'");a=await b(ft(g),a),a=a==null?"":String(a)}return a||""}catch(a){return String(a.message||a).replace(/^/,(d.split(/\s/)[0]||"bash")+": ")}},complete(l){let d=l.match(/^(.*?)(\S*)$/);if(!d)return l;let[,a,g]=d;if(!a.trim()){let E=["pwd","ls","cd","cat","head","tail","grep","wc","sort","uniq","cut","awk","find","ifconfig","ip","ping","ss","netstat","sudo","ufw","chmod","submit","hint","mission","history","help","man","whoami","hostname","clear","reset"].filter(G=>G.startsWith(g));return E.length===1?E[0]+" ":l}let h=g.lastIndexOf("/"),P=h>=0?g.slice(0,h+1):"",m=h>=0?g.slice(h+1):g,p=c(P||".");if(!p||p.type!=="dir")return l;let k=Object.keys(p.children).filter(C=>C.startsWith(m)&&(m.startsWith(".")||!C.startsWith(".")));if(k.length!==1){if(k.length>1){let C=k[0];for(let E of k)for(;!E.startsWith(C);)C=C.slice(0,-1);return a+P+C}return l}let $=p.children[k[0]];return a+P+k[0]+($.type==="dir"?"/":" ")}}}function z0(e){let t=ne(e);t&&(H.badge(),ee(`Badge unlocked: <b>${t}</b>`,"badge"))}function Ae(e,t){let s=R.progress,o=(c,u)=>{e.innerHTML=`<section class="nw"><div class="nw-hero"><p class="eyebrow nw-eye">Control Room</p><h1>${c}</h1><p>${u}</p>
+      <button class="btn btn-primary" id="crBack">Back to the town map</button></div></section>`,y("#crBack").addEventListener("click",()=>t("map"))};if(!oe())return o("The Control Room is locked","It opens after you protect all 8 places in Byteville and graduate.");if(!ae())return o("The Control Room is offline","Answers here are checked on your teacher's server. Ask your teacher to connect it, then come back.");let n=s.opSolved.length,r=ce.reduce((c,u)=>c+(s.best[u.id]||0),0),i=ce.reduce((c,u)=>c+Ee(u.num),0);e.innerHTML=`<section class="nw cr">
+    <div class="nw-hero">
+      <p class="eyebrow nw-eye">Advanced \xB7 10 levels \xB7 real commands</p>
+      <h1>Byteville Control Room</h1>
+      <p class="nw-lead">You are logged in to <span class="mono">web01</span>, the server behind the school website. Use a real Linux-style command line to read logs, check the network, and lock the server down. Every solved level gives you a password for the next one.</p>
+      <div class="nw-stats"><span><b>${n}</b>/10 solved</span><span><b>${r}</b>/${i} points</span></div>
+      <pre class="cr-sample" aria-hidden="true"><span class="ps">defender@web01:~$</span> ls -a
+.  ..  .bashrc  .shift_note  README  backup/  notes.txt
+<span class="ps">defender@web01:~$</span> sudo ufw status
+Status: inactive</pre>
+    </div>
+    <div class="nw-grid">
+      <div class="nw-levels">${ce.map(c=>{let u=s.opSolved.includes(c.id),w=c.num<=s.opUnlocked;return`<button class="nw-tile${u?" done":""}${w?"":" locked"}" data-l="${c.num}" ${w?"":"disabled"}>
+          <span class="nw-num">LEVEL ${String(c.num).padStart(2,"0")}</span><span class="nw-title">${f(c.title)}</span>
+          <span class="nw-kind">${f(c.skill)}</span>
+          <span class="nw-foot">${u?`<b>Solved</b> \xB7 ${s.best[c.id]} pts`:w?`Worth ${Ee(c.num)} pts`:"Locked"}</span></button>`}).join("")}</div>
+      <aside class="nw-side">
+        <div class="nw-card"><h3>Have a level password?</h3><p class="small">Type the password from your last solved level to continue on any computer.</p>
+          <form id="opForm" class="pc-row"><label for="opIn" class="sr">Level password</label><input id="opIn" placeholder="word-word-00" autocomplete="off"><button class="btn btn-small btn-primary">Unlock</button></form>
+          <p class="small" id="opMsg" aria-live="polite"></p></div>
+        <div class="nw-card"><h3>New to the command line?</h3><p class="small">Type <span class="mono">help</span> to see every command, and <span class="mono">man grep</span> to learn one. Press Tab to finish file names and the Up arrow to repeat a command.</p></div>
+        <div class="nw-card"><h3>Is this real?</h3><p class="small">No. web01 is a simulation that runs in your browser. Its files, addresses and attackers are made up for practice. Nothing you type reaches a real computer.</p></div>
+      </aside>
+    </div></section>`,e.querySelectorAll(".nw-tile").forEach(c=>c.addEventListener("click",()=>r0(e,t,ce[Number(c.dataset.l)-1]))),y("#opForm").addEventListener("submit",async c=>{c.preventDefault();let u=y("#opMsg"),w=y("#opIn").value.trim().toLowerCase().slice(0,40);if(!w)return;u.textContent="Checking...";let O=await ye({action:"nwpass",track:"op",code:w});if(!O){u.textContent="Cannot reach the class server. Check your Internet and try again.";return}if(!O.level){u.textContent=O.message||"That password is not right.",H.wrong();return}let T=Math.min(ce.length,O.level+1);T>s.opUnlocked&&(s.opUnlocked=T,j()),H.right(),Ae(e,t),ee(`Unlocked up to level ${T}.`)})}function gt(e){return e.id==="op7"?{enabled:!1,defIn:"allow",rules:[]}:JSON.parse(JSON.stringify(G0))}function r0(e,t,s){let o=R.progress,n=o.opHints[s.id]||0,r=0,i=!1,c=!1,u=Date.now(),w=gt(s);e.innerHTML=`<section class="nw cr-play">
+    <div class="nw-bar"><button class="btn btn-small" id="back">&larr; Control Room</button>
+      <div><small>Control Room \xB7 Level ${s.num}</small><b>${f(s.title)}</b></div><span class="nw-worth">Worth <b id="worth"></b> pts</span></div>
+    <div class="cr-work">
+      <div class="term" id="term">
+        <div class="term-top"><i></i><i></i><i></i><span>defender@web01 \xB7 ssh</span></div>
+        <div class="term-out" id="out" role="log" aria-live="polite"></div>
+        <form class="term-line" id="lineForm" autocomplete="off"><label for="cmd" class="ps" id="ps1"></label><input id="cmd" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Command"></form>
+      </div>
+      <aside class="nw-side">
+        <div class="nw-card"><h3>Mission</h3><p class="small">${f(s.mission)}</p>${s.ask?`<p class="small"><b class="gold">Goal:</b> ${f(s.ask)}</p>`:'<p class="small"><b class="gold">Goal:</b> when you think it is right, type <span class="mono">submit</span>.</p>'}</div>
+        <div class="nw-card"><h3>Commands for this level</h3><ul class="cmd-list">${s.commands.map(([L,M])=>`<li><button class="cmd-chip" data-cmd="${f(L)}">${f(L)}</button><span>${f(M)}</span></li>`).join("")}</ul></div>
+        <div class="nw-card"><h3>Hints</h3><div id="hints"></div></div>
+      </aside>
+    </div></section>`;let O=y("#out"),T=y("#cmd"),v=y("#ps1"),N=()=>{let L=Ee(s.num);return Math.max(Math.round(L*.25),Math.round(L*(1-.25*n))-5*r)},A=()=>{y("#worth").textContent=String(N())};A();let S=(L,M="")=>{var l;if(!L)return;let b=document.createElement("pre");for(b.className="tl "+M,b.textContent=L,O.appendChild(b);O.childElementCount>1500;)(l=O.firstElementChild)==null||l.remove();O.scrollTop=O.scrollHeight},D=()=>`MISSION (level ${s.num}): ${s.mission}
+${s.ask?"GOAL: "+s.ask:"GOAL: set it up, then type  submit"}`,B=()=>n?s.hints.slice(0,n).map((L,M)=>`Hint ${M+1}: ${L}`).join(`
+`):"No hints opened yet. Use the Hints box on the right (each costs points).";function q(){y("#hints").innerHTML=s.hints.map((M,b)=>b<n?`<p class="hint-open"><b>Hint ${b+1}:</b> ${f(M)}</p>`:"").join("")+(n<2&&!i?`<button class="btn btn-small" id="hintBtn">Show hint ${n+1} (costs ${Math.round(Ee(s.num)*.25)} pts)</button>`:"");let L=document.getElementById("hintBtn");L&&L.addEventListener("click",()=>{n++,o.opHints[s.id]=Math.max(o.opHints[s.id]||0,n),j(),q(),A()})}q();async function _(L){if(i)return"Already solved. Head back to the Control Room for the next level.";if(c)return"";let M=L.trim();if(s.kind==="answer"&&!M)return`Usage: submit ANSWER
+${s.ask||""}`;s.kind==="ufw"&&(M=JSON.stringify(w)),s.kind==="chmod"&&(M=JSON.stringify({mode:x.fileMode("/home/defender/backup/passwords.txt")})),c=!0,S("Checking with the class server...","dim");let b=await ye({action:"nwcheck",level:s.id,submission:M.slice(0,4e3),hints:n});if(c=!1,!b||b.error)return"submit: cannot reach the class server. Check your Internet and try again.";if(b.wait)return"submit: "+(b.message||"Wait a moment and try again.");if(!b.ok){r++,A(),H.wrong();let a=(b.failed||[]).map(g=>"  FAIL  "+g).join(`
+`);return s.kind==="answer"?"Not correct. Keep investigating. (-5 points)":`Not yet. These checks failed:
+${a||"  (see the mission)"}
+Fix it and submit again. (-5 points)`}i=!0;let l=b.points||0;o.best[s.id]=Math.max(o.best[s.id]||0,l),o.points=Object.values(o.best).reduce((a,g)=>a+g,0),o.opSolved.includes(s.id)||o.opSolved.push(s.id),o.opUnlocked=Math.max(o.opUnlocked,Math.min(ce.length,s.num+1)),o.playMs+=Date.now()-u,j(),q(),z0("op-first"),o.opSolved.length===ce.length&&z0("op-all"),H.win(),we();let d=ce[s.num];return setTimeout(()=>ie(`<p class="eyebrow">Control Room \xB7 Level ${s.num}</p><h3>${f(s.title)}: solved!</h3>
+      <p><b>${l} points</b>, checked by the class server.</p>
+      ${d?`<div class="passcode">Password for the next level: <b>${f(b.passcode||"")}</b></div>
+      <p class="small muted">Write it down. It unlocks level ${s.num+1} on any computer.</p>`:"<p><b>You finished the Control Room. web01 is locked down.</b></p>"}`,d?[{label:`Next: ${d.title}`,primary:!0,onClick:()=>r0(e,t,d)},{label:"Control Room",onClick:()=>Ae(e,t)}]:[{label:"Back to the Control Room",primary:!0,onClick:()=>Ae(e,t)}]),600),d?`ACCESS GRANTED. Level ${s.num} solved for ${l} points.
+Password for level ${s.num+1}: ${b.passcode||""}`:`ACCESS GRANTED. Level ${s.num} solved for ${l} points.
+You finished the Control Room.`}let x=j0({data:B0,ufw:w,onSubmit:_,onMission:D,onHint:B,onReset:()=>{r0(e,t,s)},onClear:()=>{O.innerHTML=""}}),I=-1,F=()=>{v.textContent=x.prompt()};F(),S(`Welcome to Ubuntu 24.04 LTS (GNU/Linux 6.8.0-45-generic x86_64)
+
+  This is a SIMULATED server for training. Nothing here is real.
+
+Last login: Tue Oct  6 21:02:11 2026 from 10.0.5.20
+Type  help  for commands,  mission  to see your task.
+`,"dim"),S(D(),"gold"),y("#lineForm").addEventListener("submit",async L=>{if(L.preventDefault(),c)return;let M=T.value;T.value="",I=-1,S(x.prompt()+M,"cmdline");let b=await x.run(M);document.body.contains(O)&&(S(b),F(),T.focus())}),T.addEventListener("keydown",L=>{var M;if(L.key==="ArrowUp"){L.preventDefault();let b=x.history;if(!b.length)return;I=I<0?b.length-1:Math.max(0,I-1),T.value=b[I]}else if(L.key==="ArrowDown"){L.preventDefault();let b=x.history;if(I<0)return;I++,I>=b.length?(I=-1,T.value=""):T.value=b[I]}else L.key==="Tab"?(L.preventDefault(),T.value=x.complete(T.value)):L.key==="l"&&L.ctrlKey?(L.preventDefault(),O.innerHTML=""):L.key==="c"&&L.ctrlKey&&!((M=window.getSelection())!=null&&M.toString())&&(L.preventDefault(),S(x.prompt()+T.value+"^C","cmdline"),T.value="")}),y("#term").addEventListener("click",()=>{var L;(L=window.getSelection())!=null&&L.toString()||T.focus()}),e.querySelectorAll(".cmd-chip").forEach(L=>L.addEventListener("click",()=>{let M=L.dataset.cmd||"";T.value=M.replace(/ (FILE|ANSWER|HOST|IP|DIR|TEXT|\.NAME)$/," ").replace(/^A \| B$/,""),T.focus()})),y("#back").addEventListener("click",()=>Ae(e,t)),T.focus()}var V=y("#app");function re(e){let t=R.profile,s=R.progress,o=Le(s.points);document.querySelectorAll(".nav a").forEach(r=>r.classList.toggle("on",r.dataset.go===e)),y("#navPlayer").innerHTML=t?`<button class="player-pill" data-go="profile" aria-label="Your profile">${Ie(t.avatar,34)}
+    <span><b>${f(t.name)}</b><small>${o.name} \xB7 <span class="pts-num">${s.points}</span> pts</small></span></button>`:"";let n=y("#navPlayer .player-pill");n&&n.addEventListener("click",()=>z("profile"))}function z(e){switch(!R.profile&&e!=="help"&&(e="welcome"),window.scrollTo(0,0),e){case"map":return Ot();case"badges":return Ct();case"help":return vt();case"profile":return At();case"grad":return St();case"nightwatch":return re("nightwatch"),ve(V,z);case"controlroom":return re("controlroom"),Ae(V,z);default:return Pt()}}(()=>{let e=document.querySelector(".nav");if(e&&!e.querySelector('[data-go="nightwatch"]')){let t=document.createElement("a");t.href="#",t.dataset.go="nightwatch",t.textContent="Night Watch",t.className="nav-night",e.insertBefore(t,e.querySelector('[data-go="help"]'))}if(e&&!e.querySelector('[data-go="controlroom"]')){let t=document.createElement("a");t.href="#",t.dataset.go="controlroom",t.textContent="Control Room",t.className="nav-night",e.insertBefore(t,e.querySelector('[data-go="help"]'))}})();document.querySelectorAll("[data-go]").forEach(e=>e.addEventListener("click",t=>{t.preventDefault(),z(e.dataset.go||"map")}));function Pt(){re("");let e=0;V.innerHTML=`
+  <div class="hero-banner"><img src="assets/hero.jpg" alt="Byteville Defenders: two knights guard a digital castle" width="1408" height="768"></div>
   <section class="welcome">
     <div class="welcome-copy">
       <p class="eyebrow">A cybersecurity training camp</p>
       <h1>Byteville needs <span class="hl">defenders.</span></h1>
       <p class="lead">Hackers are knocking on the town's doors. In about 45 minutes, Officer Ada will train you to spot tricks, choose strong locks, guard the city gate, and catch attacks hidden in plain sight.</p>
       <ul class="welcome-list">
-        <li><b>8 chapters</b> on one town map</li><li><b>Points, ranks, and 14 badges</b></li><li><b>A certificate</b> when you graduate</li>
+        <li><b>8 chapters</b> on one town map</li><li><b>Points, ranks, and 20 badges</b></li><li><b>A certificate</b> when you graduate</li>
       </ul>
-      <div class="town-art">${art("town")}</div>
     </div>
     <form class="signup card" id="signup" autocomplete="off">
-      <div class="ada-line">${ada(56)}<p><b>Officer Ada:</b> Hi! I am the town's security chief. Tell me who you are and we will get started.</p></div>
+      <div class="ada-line">${de(56)}<p><b>Officer Ada:</b> Hi! I am the town's security chief. Tell me who you are and we will get started.</p></div>
       <label for="fName">Your first name and last initial</label>
       <input id="fName" maxlength="30" placeholder="Maya R." required>
       <label for="fClass">Class code <span class="muted">(from your teacher)</span></label>
-      <input id="fClass" maxlength="20" placeholder="CYBR-2000" value="${esc(config().defaultClassCode || "")}">
+      <input id="fClass" maxlength="20" placeholder="e.g. PERIOD-3" value="${f(te().defaultClassCode||"")}">
       <span class="label">Pick your avatar</span>
-      <div class="avatars" role="radiogroup" aria-label="Avatar">${[0, 1, 2, 3, 4, 5].map((i) => `<button type="button" class="av${i === 0 ? " on" : ""}" role="radio" aria-checked="${i === 0}" data-i="${i}">${avatar(i, 48)}</button>`).join("")}</div>
+      <div class="avatars" role="radiogroup" aria-label="Avatar">${[0,1,2,3,4,5].map(t=>`<button type="button" class="av${t===0?" on":""}" role="radio" aria-checked="${t===0}" data-i="${t}">${Ie(t,48)}</button>`).join("")}</div>
       <button class="btn btn-primary btn-big" type="submit">Start training</button>
-      <p class="small muted">${trackingOn() ? "Your teacher will see your answers and scores so they can help you learn. Use only your first name and last initial." : "Your progress is saved in this browser only."}</p>
+      <p class="small muted">${ae()?"Your teacher will see your answers and scores so they can help you learn. Use only your first name and last initial.":"Your progress is saved in this browser only."}</p>
     </form>
-  </section>`;
-    app.querySelectorAll(".av").forEach((b) => b.addEventListener("click", () => {
-      pickAv = Number(b.dataset.i);
-      app.querySelectorAll(".av").forEach((x) => {
-        x.classList.toggle("on", x === b);
-        x.setAttribute("aria-checked", String(x === b));
-      });
-    }));
-    $("#signup").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = $("#fName").value.trim().slice(0, 30);
-      if (!name) return;
-      store.profile = { name, classCode: $("#fClass").value.trim().toUpperCase().slice(0, 20), avatar: pickAv, sessionId: newSessionId(), createdAt: (/* @__PURE__ */ new Date()).toISOString() };
-      persist();
-      track({ event: "start", choice: `avatar ${pickAv}` });
-      sfx.badge();
-      go("map");
-    });
-  }
-  function nextChapter() {
-    return CHAPTERS.find((c) => !store.progress.done.includes(c.id));
-  }
-  function stars(n2) {
-    return `<span class="stars" aria-label="${n2} of 3 stars">${[0, 1, 2].map((i) => `<svg viewBox="0 0 24 24" class="${i < n2 ? "on" : ""}"><path d="M12 2l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.8 5.7 21.4l1.5-7.1L1.8 9.4 9 8.6z"/></svg>`).join("")}</span>`;
-  }
-  function showMap() {
-    renderHeader("map");
-    const p = store.progress;
-    const nx = nextChapter();
-    const r = rankFor(p.points);
-    const toNext = r.next ? Math.round((p.points - r.floor) / (r.next - r.floor) * 100) : 100;
-    const first = store.profile.name.split(" ")[0];
-    const greet = p.done.length === 0 ? `Welcome, ${esc(first)}! Start at the Town Hall. Click it on the map.` : nx ? `Nice work, ${esc(first)}. Next stop: <b>${nx.place}</b>.` : `You did it, ${esc(first)}! Visit Graduation for your certificate.`;
-    app.innerHTML = `
+  </section>`,V.querySelectorAll(".av").forEach(t=>t.addEventListener("click",()=>{e=Number(t.dataset.i),V.querySelectorAll(".av").forEach(s=>{s.classList.toggle("on",s===t),s.setAttribute("aria-checked",String(s===t))})})),y("#signup").addEventListener("submit",t=>{t.preventDefault();let s=y("#fName").value.trim().slice(0,30);s&&(R.profile={name:s,classCode:y("#fClass").value.trim().toUpperCase().slice(0,20),avatar:e,sessionId:P0(),createdAt:new Date().toISOString()},j(),Oe({event:"start",choice:`avatar ${e}`}),H.badge(),z("map"))})}function Lt(){return Y.find(e=>!R.progress.done.includes(e.id))}function K0(e){return`<span class="stars" aria-label="${e} of 3 stars">${[0,1,2].map(t=>`<svg viewBox="0 0 24 24" class="${t<e?"on":""}"><path d="M12 2l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.8 5.7 21.4l1.5-7.1L1.8 9.4 9 8.6z"/></svg>`).join("")}</span>`}function Ot(){re("map");let e=R.progress,t=Lt(),s=Le(e.points),o=s.next?Math.round((e.points-s.floor)/(s.next-s.floor)*100):100,n=R.profile.name.split(" ")[0],r=e.done.length===0?`Welcome, ${f(n)}! Start at the Town Hall. Click it on the map.`:t?`Nice work, ${f(n)}. Next stop: <b>${t.place}</b>.`:`You did it, ${f(n)}! Visit Graduation for your certificate.`;V.innerHTML=`
   <section class="map-top">
-    <div class="ada-bubble">${ada(64)}<div class="bubble"><p>${greet}</p></div></div>
+    <div class="ada-bubble">${de(64)}<div class="bubble"><p>${r}</p></div></div>
     <div class="map-stats">
-      <div class="stat"><b>${p.points}</b><span>points</span></div>
-      <div class="stat"><b>${totalStars()}<small>/${maxStars()}</small></b><span>stars</span></div>
-      <div class="stat"><b>${p.badges.length}<small>/${BADGES.length}</small></b><span>badges</span></div>
-      <div class="stat rank"><b>${r.name}</b><span>${r.next ? `${r.next - p.points} pts to next rank` : "Top rank!"}</span><div class="meter"><i style="width:${toNext}%"></i></div></div>
+      <div class="stat"><b>${e.points}</b><span>points</span></div>
+      <div class="stat"><b>${ze()}<small>/${qe()}</small></b><span>stars</span></div>
+      <div class="stat"><b>${e.badges.length}<small>/${fe.length}</small></b><span>badges</span></div>
+      <div class="stat rank"><b>${s.name}</b><span>${s.next?`${s.next-e.points} pts to next rank`:"Top rank!"}</span><div class="meter"><i style="width:${o}%"></i></div></div>
     </div>
   </section>
   <section class="town">
-    <div class="town-head"><h2>Town map</h2><p class="muted">${p.done.length} of ${CHAPTERS.length} places protected</p></div>
-    <div class="town-board">${CHAPTERS.map((c, i) => {
-      const open = i + 1 <= p.unlocked;
-      const done = p.done.includes(c.id);
-      const isNext = nx && nx.id === c.id;
-      return `<button class="lot${open ? "" : " locked"}${isNext ? " next" : ""}${done ? " done" : ""}" data-ch="${c.id}" ${open ? "" : "disabled"} style="--c:${c.color}">
-        <span class="lot-num">${c.num}</span>
-        <span class="lot-art">${building(c)}</span>
-        <span class="lot-name">${c.place}</span>
-        <span class="lot-topic">${c.topic}</span>
-        <span class="lot-foot">${open ? done ? stars(p.stars[c.id] || 0) : `<span class="mins">${c.minutes} min</span>` : '<span class="mins">Locked</span>'}${isNext ? '<span class="go-tag">Go here</span>' : ""}</span>
-      </button>`;
-    }).join("")}
-      <button class="lot grad${p.done.length === CHAPTERS.length ? " next" : " locked"}" data-go-grad ${p.done.length === CHAPTERS.length ? "" : "disabled"}>
-        <span class="lot-name">Graduation</span><span class="lot-topic">${p.done.length === CHAPTERS.length ? "Get your certificate" : "Finish all 8 places to unlock"}</span></button>
-      <button class="lot night${nightWatchOpen() ? "" : " locked"}" data-go-nw ${nightWatchOpen() ? "" : "disabled"}>
-        <span class="lot-name">Night Watch</span><span class="lot-topic">${nightWatchOpen() ? `Advanced: 12 hard levels \xB7 ${p.nwSolved.length}/12 solved` : "Advanced levels. Unlocks after graduation"}</span></button>
+    <div class="town-head"><h2>Town map</h2><p class="muted">${e.done.length} of ${Y.length} places protected</p></div>
+    <div class="town-board">${Y.map((w,O)=>{let T=O+1<=e.unlocked,v=e.done.includes(w.id),N=t&&t.id===w.id;return`<button class="lot${T?"":" locked"}${N?" next":""}${v?" done":""}" data-ch="${w.id}" ${T?"":"disabled"} style="--c:${w.color}">
+        <span class="lot-num">${w.num}</span>
+        <span class="lot-art">${w0(w)}</span>
+        <span class="lot-name">${w.place}</span>
+        <span class="lot-topic">${w.topic}</span>
+        <span class="lot-foot">${T?v?K0(e.stars[w.id]||0):`<span class="mins">${w.minutes} min</span>`:'<span class="mins">Locked</span>'}${N?'<span class="go-tag">Go here</span>':""}</span>
+      </button>`}).join("")}
+      <button class="lot grad${e.done.length===Y.length?" next":" locked"}" data-go-grad ${e.done.length===Y.length?"":"disabled"}>
+        <span class="lot-name">Graduation</span><span class="lot-topic">${e.done.length===Y.length?"Get your certificate":"Finish all 8 places to unlock"}</span></button>
+      <button class="lot night${oe()?"":" locked"}" data-go-nw ${oe()?"":"disabled"}>
+        <span class="lot-name">Night Watch</span><span class="lot-topic">${oe()?`Advanced: 12 hard levels \xB7 ${e.nwSolved.length}/12 solved`:"Advanced levels. Unlocks after graduation"}</span></button>
+      <button class="lot night${oe()?"":" locked"}" data-go-cr ${oe()?"":"disabled"}>
+        <span class="lot-name">Control Room</span><span class="lot-topic">${oe()?`Command line: 10 levels on a live server \xB7 ${e.opSolved.length}/10 solved`:"Command-line levels. Unlocks after graduation"}</span></button>
     </div>
   </section>
   <section class="map-side">
-    <div class="card"><h3>Latest badges</h3><div class="badge-row">${p.badges.length ? p.badges.slice(-4).map((id2) => badgeChip(id2, true)).join("") : '<p class="muted small">Finish the Town Hall to earn your first badge.</p>'}</div>
+    <div class="card"><h3>Latest badges</h3><div class="badge-row">${e.badges.length?e.badges.slice(-4).map(w=>Y0(w,!0)).join(""):'<p class="muted small">Finish the Town Hall to earn your first badge.</p>'}</div>
       <a href="#" class="link" data-go="badges">See all badges</a></div>
-    <div class="card" id="lbCard"><h3>Class leaderboard</h3><p class="muted small">${trackingOn() ? "Loading..." : "The leaderboard appears when your teacher turns on class tracking."}</p></div>
-  </section>`;
-    app.querySelectorAll(".lot[data-ch]").forEach((b) => b.addEventListener("click", () => startChapter(CHAPTERS.find((c) => c.id === b.dataset.ch))));
-    const g = app.querySelector("[data-go-grad]");
-    if (g) g.addEventListener("click", () => go("grad"));
-    const nwb = app.querySelector("[data-go-nw]");
-    if (nwb) nwb.addEventListener("click", () => go("nightwatch"));
-    app.querySelectorAll("a[data-go]").forEach((a) => a.addEventListener("click", (e) => {
-      e.preventDefault();
-      go(a.dataset.go);
-    }));
-    if (trackingOn()) {
-      void flush().then(() => leaderboard(store.profile.classCode)).then((rows) => {
-        const card = $("#lbCard");
-        if (!card) return;
-        if (!rows) {
-          card.innerHTML = '<h3>Class leaderboard</h3><p class="muted small">Not available right now.</p>';
-          return;
-        }
-        card.innerHTML = `<h3>Class leaderboard</h3>${rows.length ? `<ol class="lb">${rows.slice(0, 8).map((r2) => `<li class="${r2.student === store.profile.name ? "me" : ""}"><span>${esc(r2.student)}</span><b>${r2.points}</b></li>`).join("")}</ol>` : '<p class="muted small">No scores yet. Be the first!</p>'}`;
-      });
-    }
-  }
-  function badgeChip(id2, on) {
-    const b = BADGES.find((x) => x.id === id2);
-    return `<div class="badge ${on ? "on" : ""}"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l5 4 6-1 2 6 5 4-2 6 2 6-5 4-2 6-6-1-5 4-5-4-6 1-2-6-5-4 2-6-2-6 5-4 2-6 6 1z" class="b-seal"/><path d="M13 20l5 5 9-10" class="b-check"/></svg><span><b>${b.name}</b><small>${b.how}</small></span></div>`;
-  }
-  var run = null;
-  function giveBadge(id2) {
-    const b = award(id2);
-    if (b) {
-      sfx.badge();
-      toast(`Badge unlocked: <b>${b}</b>`, "badge");
-    }
-  }
-  function answer(a) {
-    var _a;
-    const p = store.progress;
-    if (!run) return 0;
-    run.answered++;
-    p.answered++;
-    let pts = 0;
-    if (a.correct) {
-      run.correct++;
-      p.correct++;
-      p.streak++;
-      p.bestStreak = Math.max(p.bestStreak, p.streak);
-      const mult = 1 + Math.min(2, Math.floor(p.streak / 3) * 0.5);
-      pts = Math.round(((_a = a.base) != null ? _a : 10) * mult) + (a.bonus || 0);
-      if (p.streak === 5) giveBadge("streak5");
-      if (p.streak === 10) giveBadge("streak10");
-      if (p.streak > 0 && p.streak % 5 === 0) toast(`${p.streak} in a row! Points x${mult}`);
-    } else {
-      p.streak = 0;
-    }
-    run.points += pts;
-    persist();
-    updateRunBar();
-    track({
-      event: a.itemId.endsWith("-check") ? "check" : "answer",
-      chapter: run.ch.id,
-      item_id: a.itemId,
-      prompt: a.prompt,
-      choice: a.choice,
-      correct_answer: a.correctAnswer,
-      correct: a.correct ? 1 : 0,
-      time_ms: Math.round(a.timeMs),
-      points: pts,
-      total_points: p.points + run.points
-    });
-    return pts;
-  }
-  function updateRunBar() {
-    const bar = document.querySelector(".run-bar");
-    if (!bar || !run) return;
-    bar.querySelector(".rb-pts").textContent = String(run.points);
-    bar.querySelector(".rb-streak").textContent = String(store.progress.streak);
-  }
-  function chapterShell(ch, stepLabel, stepIdx, steps) {
-    app.innerHTML = `
-  <div class="run-bar" style="--c:${ch.color}">
+    <div class="card" id="lbCard"><h3>Class leaderboard <small class="muted">(server-checked)</small></h3><p class="muted small">${ae()?"Loading...":"The leaderboard appears when your teacher turns on class tracking."}</p></div>
+  </section>`,V.querySelectorAll(".lot[data-ch]").forEach(w=>w.addEventListener("click",()=>a0(Y.find(O=>O.id===w.dataset.ch))));let i=V.querySelector("[data-go-grad]");i&&i.addEventListener("click",()=>z("grad"));let c=V.querySelector("[data-go-nw]");c&&c.addEventListener("click",()=>z("nightwatch"));let u=V.querySelector("[data-go-cr]");u&&u.addEventListener("click",()=>z("controlroom")),V.querySelectorAll("a[data-go]").forEach(w=>w.addEventListener("click",O=>{O.preventDefault(),z(w.dataset.go)})),ae()&&Te().then(()=>O0(R.profile.classCode)).then(w=>{let O=y("#lbCard");if(O){if(!w){O.innerHTML='<h3>Class leaderboard <small class="muted">(server-checked)</small></h3><p class="muted small">Not available right now.</p>';return}O.innerHTML=`<h3>Class leaderboard <small class="muted">(server-checked)</small></h3>${w.length?`<ol class="lb">${w.slice(0,8).map(T=>`<li class="${T.student===R.profile.name?"me":""}"><span>${f(T.student)}</span><b>${T.points}</b></li>`).join("")}</ol>`:'<p class="muted small">No scores yet. Be the first!</p>'}`}})}function Y0(e,t){let s=fe.find(o=>o.id===e);return`<div class="badge ${t?"on":""}"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l5 4 6-1 2 6 5 4-2 6 2 6-5 4-2 6-6-1-5 4-5-4-6 1-2-6-5-4 2-6-2-6 5-4 2-6 6 1z" class="b-seal"/><path d="M13 20l5 5 9-10" class="b-check"/></svg><span><b>${s.name}</b><small>${s.how}</small></span></div>`}var U=null;function Re(e){let t=ne(e);t&&(H.badge(),ee(`Badge unlocked: <b>${t}</b>`,"badge"))}function q0(e){var o;let t=R.progress;if(!U)return 0;U.answered++,t.answered++;let s=0;if(e.correct){U.correct++,t.correct++,t.streak++,t.bestStreak=Math.max(t.bestStreak,t.streak);let n=1+Math.min(2,Math.floor(t.streak/3)*.5);s=Math.round(((o=e.base)!=null?o:10)*n)+(e.bonus||0),t.streak===5&&Re("streak5"),t.streak===10&&Re("streak10"),t.streak>0&&t.streak%5===0&&ee(`${t.streak} in a row! Points x${n}`)}else t.streak=0;return U.points+=s,j(),yt(),Oe({event:e.itemId.endsWith("-check")?"check":"answer",chapter:U.ch.id,item_id:e.itemId,prompt:e.prompt,choice:e.choice,correct_answer:e.correctAnswer,correct:e.correct?1:0,time_ms:Math.round(e.timeMs),points:s,total_points:t.points+U.points}),s}function yt(){let e=document.querySelector(".run-bar");!e||!U||(e.querySelector(".rb-pts").textContent=String(U.points),e.querySelector(".rb-streak").textContent=String(R.progress.streak))}function n0(e,t,s,o){return V.innerHTML=`
+  <div class="run-bar" style="--c:${e.color}">
     <button class="btn btn-small btn-ghost" id="leave">&larr; Map</button>
-    <div class="rb-title"><small>Chapter ${ch.num} \xB7 ${ch.place}</small><b>${esc(stepLabel)}</b></div>
-    <div class="rb-steps" aria-hidden="true">${Array.from({ length: steps }, (_, i) => `<i class="${i < stepIdx ? "done" : i === stepIdx ? "now" : ""}"></i>`).join("")}</div>
-    <div class="rb-score"><span><small>Points</small><b class="rb-pts">${run ? run.points : 0}</b></span><span><small>Streak</small><b class="rb-streak">${store.progress.streak}</b></span></div>
+    <div class="rb-title"><small>Chapter ${e.num} \xB7 ${e.place}</small><b>${f(t)}</b></div>
+    <div class="rb-steps" aria-hidden="true">${Array.from({length:o},(n,r)=>`<i class="${r<s?"done":r===s?"now":""}"></i>`).join("")}</div>
+    <div class="rb-score"><span><small>Points</small><b class="rb-pts">${U?U.points:0}</b></span><span><small>Streak</small><b class="rb-streak">${R.progress.streak}</b></span></div>
   </div>
-  <section class="stage" id="stage"></section>`;
-    $("#leave").addEventListener("click", () => {
-      modal("<h3>Leave this chapter?</h3><p>Your points in this chapter will not be saved until you finish it.</p>", [
-        { label: "Keep playing", primary: true, onClick: () => void 0 },
-        { label: "Go to the map", onClick: () => {
-          run = null;
-          go("map");
-        } }
-      ]);
-    });
-    return $("#stage");
-  }
-  function startChapter(ch) {
-    run = { ch, points: 0, answered: 0, correct: 0, started: Date.now(), read: /* @__PURE__ */ new Set() };
-    renderHeader("map");
-    const steps = ch.lessons.length + 1 + ch.stages.length;
-    let lesson = 0;
-    const showLesson = () => {
-      const L = ch.lessons[lesson];
-      const t0 = Date.now();
-      const st = chapterShell(ch, `Lesson ${lesson + 1} of ${ch.lessons.length}`, lesson, steps);
-      st.innerHTML = `
+  <section class="stage" id="stage"></section>`,y("#leave").addEventListener("click",()=>{ie("<h3>Leave this chapter?</h3><p>Your points in this chapter will not be saved until you finish it.</p>",[{label:"Keep playing",primary:!0,onClick:()=>{}},{label:"Go to the map",onClick:()=>{U=null,z("map")}}])}),y("#stage")}function a0(e){U={ch:e,points:0,answered:0,correct:0,started:Date.now(),read:new Set},re("map");let t=e.lessons.length+1+e.stages.length,s=0,o=()=>{let i=e.lessons[s],c=Date.now(),u=n0(e,`Lesson ${s+1} of ${e.lessons.length}`,s,t);u.innerHTML=`
     <article class="lesson">
       <div class="lesson-text">
-        <p class="eyebrow">${esc(ch.topic)}</p>
-        <h1>${esc(L.title)}</h1>
-        <div class="ada-line small-ada">${ada(44)}<span>Officer Ada explains</span></div>
-        ${L.body.map((b) => `<p>${b}</p>`).join("")}
-        ${L.fact ? `<div class="fact"><b>Did you know?</b> ${L.fact}</div>` : ""}
+        <p class="eyebrow">${f(e.topic)}</p>
+        <h1>${f(i.title)}</h1>
+        <div class="ada-line small-ada">${de(44)}<span>Officer Ada explains</span></div>
+        ${i.body.map(w=>`<p>${w}</p>`).join("")}
+        ${i.fact?`<div class="fact"><b>Did you know?</b> ${i.fact}</div>`:""}
       </div>
-      <figure class="lesson-art">${L.art ? art(L.art) : ""}</figure>
+      <figure class="lesson-art">${i.art?b0(i.art):""}</figure>
     </article>
     <div class="lesson-nav">
-      <button class="btn" id="back" ${lesson === 0 ? "disabled" : ""}>Back</button>
+      <button class="btn" id="back" ${s===0?"disabled":""}>Back</button>
       <span class="muted small">Reading earns 5 points</span>
-      <button class="btn btn-primary" id="next">${lesson === ch.lessons.length - 1 ? "Quick check" : "Next"}</button>
-    </div>`;
-      $("#back").addEventListener("click", () => {
-        lesson--;
-        showLesson();
-      });
-      $("#next").addEventListener("click", () => {
-        const secs = Date.now() - t0;
-        track({ event: "lesson", chapter: ch.id, item_id: `${ch.id}-l${lesson + 1}`, prompt: L.title, time_ms: secs, points: 5 });
-        if (run && !run.read.has(lesson)) {
-          run.read.add(lesson);
-          run.points += 5;
-        }
-        lesson++;
-        lesson < ch.lessons.length ? showLesson() : showCheck();
-      });
-      $("#next").focus();
-    };
-    const showCheck = () => {
-      const st = chapterShell(ch, "Quick check", ch.lessons.length, steps);
-      st.innerHTML = `<div class="check card"><div class="ada-line">${ada(52)}<p><b>Quick check!</b> One question to make sure the idea stuck.</p></div><div class="q-box"></div></div>`;
-      askOne(
-        $(".q-box", st),
-        ch.check,
-        "list",
-        (i, ok, ms) => answer({ itemId: ch.check.id, prompt: ch.check.prompt, choice: ch.check.options[i], correctAnswer: ch.check.options[ch.check.answer], correct: ok, timeMs: ms }),
-        () => {
-          if (run && run.ch === ch && document.body.contains(st)) runStage(0);
-        }
-      );
-    };
-    const runStage = (s) => {
-      if (s >= ch.stages.length) return finishChapter(ch);
-      const stage = ch.stages[s];
-      const st = chapterShell(ch, stage.title, ch.lessons.length + 1 + s, steps);
-      const myRun = run;
-      let finished = false;
-      const ctx = {
-        answer: (a) => run === myRun ? answer(a) : 0,
-        done: () => {
-          if (finished || run !== myRun) return;
-          finished = true;
-          runStage(s + 1);
-        },
-        chapter: ch
-      };
-      if (stage.type === "sort") runSort(st, stage, ctx);
-      else if (stage.type === "choice") runChoice(st, stage, ctx);
-      else if (stage.type === "inbox") runInbox(st, stage, ctx);
-      else if (stage.type === "lane") runLane(st, stage, ctx);
-      else runOrder(st, stage, ctx);
-    };
-    showLesson();
-  }
-  function finishChapter(ch) {
-    if (!run) return;
-    const p = store.progress;
-    const acc = run.answered ? run.correct / run.answered : 1;
-    const st = acc >= 0.9 ? 3 : acc >= 0.7 ? 2 : 1;
-    const firstTime = !p.done.includes(ch.id);
-    let bonus = 25 + (st === 3 ? 25 : 0);
-    run.points += bonus;
-    const prevBest = p.best[ch.id] || 0;
-    const newBest = Math.max(prevBest, run.points);
-    p.best[ch.id] = newBest;
-    p.points = Object.values(p.best).reduce((a, b) => a + b, 0);
-    p.stars[ch.id] = Math.max(p.stars[ch.id] || 0, st);
-    p.playMs += Date.now() - run.started;
-    if (firstTime) p.done.push(ch.id);
-    p.unlocked = Math.max(p.unlocked, Math.min(CHAPTERS.length, ch.num + 1));
-    persist();
-    giveBadge("ch-" + ch.id);
-    if (Object.values(p.stars).filter((x) => x === 3).length >= 3) giveBadge("perfect");
-    const allDone = p.done.length === CHAPTERS.length;
-    if (allDone) giveBadge("grad");
-    track({
-      event: "chapter_complete",
-      chapter: ch.id,
-      item_id: ch.id + "-done",
-      prompt: ch.place,
-      choice: `${st} stars`,
-      correct_answer: "",
-      correct: Math.round(acc * 100),
-      time_ms: Date.now() - run.started,
-      points: run.points,
-      total_points: p.points
-    });
-    if (allDone && firstTime) track({ event: "finish", points: 0, total_points: p.points });
-    void flush();
-    sfx.win();
-    confetti();
-    const nx = CHAPTERS[ch.num];
-    const r = rankFor(p.points);
-    const improved = newBest > prevBest && prevBest > 0;
-    const runPts = run.points;
-    run = null;
-    renderHeader("map");
-    app.innerHTML = `
+      <button class="btn btn-primary" id="next">${s===e.lessons.length-1?"Quick check":"Next"}</button>
+    </div>`,y("#back").addEventListener("click",()=>{s--,o()}),y("#next").addEventListener("click",()=>{let w=Date.now()-c;Oe({event:"lesson",chapter:e.id,item_id:`${e.id}-l${s+1}`,prompt:i.title,time_ms:w,points:5}),U&&!U.read.has(s)&&(U.read.add(s),U.points+=5),s++,s<e.lessons.length?o():n()}),y("#next").focus()},n=()=>{let i=n0(e,"Quick check",e.lessons.length,t);i.innerHTML=`<div class="check card"><div class="ada-line">${de(52)}<p><b>Quick check!</b> One question to make sure the idea stuck.</p></div><div class="q-box"></div></div>`,Ze(y(".q-box",i),e.check,"list",(c,u,w)=>q0({itemId:e.check.id,prompt:e.check.prompt,choice:e.check.options[c],correctAnswer:e.check.options[e.check.answer],correct:u,timeMs:w}),()=>{U&&U.ch===e&&document.body.contains(i)&&r(0)})},r=i=>{if(i>=e.stages.length)return kt(e);let c=e.stages[i],u=n0(e,c.title,e.lessons.length+1+i,t),w=U,O=!1,T={answer:v=>U===w?q0(v):0,done:()=>{O||U!==w||(O=!0,r(i+1))},chapter:e};c.type==="sort"?A0(u,c,T):c.type==="choice"?S0(u,c,T):c.type==="inbox"?W0(u,c,T):c.type==="lane"?$0(u,c,T):x0(u,c,T)};o()}function kt(e){if(!U)return;let t=R.progress,s=U.answered?U.correct/U.answered:1,o=s>=.9?3:s>=.7?2:1,n=!t.done.includes(e.id),r=25+(o===3?25:0);U.points+=r;let i=t.best[e.id]||0,c=Math.max(i,U.points);t.best[e.id]=c,t.points=Object.values(t.best).reduce((S,D)=>S+D,0),t.stars[e.id]=Math.max(t.stars[e.id]||0,o),t.playMs+=Date.now()-U.started,n&&t.done.push(e.id),t.unlocked=Math.max(t.unlocked,Math.min(Y.length,e.num+1)),j(),Re("ch-"+e.id),Object.values(t.stars).filter(S=>S===3).length>=3&&Re("perfect");let u=t.done.length===Y.length;u&&Re("grad"),Oe({event:"chapter_complete",chapter:e.id,item_id:e.id+"-done",prompt:e.place,choice:`${o} stars`,correct_answer:"",correct:Math.round(s*100),time_ms:Date.now()-U.started,points:U.points,total_points:t.points}),u&&n&&Oe({event:"finish",points:0,total_points:t.points}),Te(),H.win(),we();let w=Y[e.num],O=Le(t.points),T=c>i&&i>0,v=U.points;U=null,re("map"),V.innerHTML=`
   <section class="results card">
-    <p class="eyebrow">Chapter ${ch.num} complete</p>
-    <h1>${ch.place} is protected!</h1>
-    <div class="res-stars">${stars(st)}</div>
+    <p class="eyebrow">Chapter ${e.num} complete</p>
+    <h1>${e.place} is protected!</h1>
+    <div class="res-stars">${K0(o)}</div>
     <div class="res-grid">
-      <div><b>${runPts}</b><span>points this run</span></div>
-      <div><b>${Math.round(acc * 100)}%</b><span>correct</span></div>
-      <div><b>${p.bestStreak}</b><span>best streak</span></div>
-      <div><b>${r.name}</b><span>your rank</span></div>
+      <div><b>${v}</b><span>points this run</span></div>
+      <div><b>${Math.round(s*100)}%</b><span>correct</span></div>
+      <div><b>${t.bestStreak}</b><span>best streak</span></div>
+      <div><b>${O.name}</b><span>your rank</span></div>
     </div>
-    ${prevBest && !improved ? `<p class="muted small">Your best for this chapter is still ${prevBest}. Only your best run counts toward your total.</p>` : ""}
-    ${improved ? `<p class="small"><b>New best!</b> Your total went up.</p>` : ""}
-    <div class="ada-line">${ada(56)}<p><b>Officer Ada:</b> ${esc(ch.outro)} ${st < 3 ? "Replay any time to earn 3 stars." : ""}</p></div>
+    ${i&&!T?`<p class="muted small">Your best for this chapter is still ${i}. Only your best run counts toward your total.</p>`:""}
+    ${T?'<p class="small"><b>New best!</b> Your total went up.</p>':""}
+    <div class="ada-line">${de(56)}<p><b>Officer Ada:</b> ${f(e.outro)} ${o<3?"Replay any time to earn 3 stars.":""}</p></div>
     <div class="row-gap center">
-      ${allDone ? '<button class="btn btn-primary btn-big" id="toGrad">Go to Graduation</button>' : nx ? `<button class="btn btn-primary btn-big" id="toNext">Next: ${nx.place}</button>` : ""}
+      ${u?'<button class="btn btn-primary btn-big" id="toGrad">Go to Graduation</button>':w?`<button class="btn btn-primary btn-big" id="toNext">Next: ${w.place}</button>`:""}
       <button class="btn" id="toMap">Town map</button>
       <button class="btn" id="again">Replay</button>
     </div>
-  </section>`;
-    const tn = document.getElementById("toNext");
-    if (tn && nx) tn.addEventListener("click", () => startChapter(nx));
-    const tg = document.getElementById("toGrad");
-    if (tg) tg.addEventListener("click", () => go("grad"));
-    $("#toMap").addEventListener("click", () => go("map"));
-    $("#again").addEventListener("click", () => startChapter(ch));
-  }
-  function showBadges() {
-    renderHeader("badges");
-    const have = store.progress.badges;
-    app.innerHTML = `<section class="page"><p class="eyebrow">Collection</p><h1>Badges</h1><p class="lead">${have.length} of ${BADGES.length} earned. Each badge shows what you need to do.</p>
-    <div class="badge-grid">${BADGES.map((b) => badgeChip(b.id, have.includes(b.id))).join("")}</div></section>`;
-  }
-  function showHelp() {
-    renderHeader("help");
-    app.innerHTML = `<section class="page narrow"><p class="eyebrow">Guide</p><h1>How to play</h1>
-    <div class="ada-line">${ada(56)}<p><b>Officer Ada:</b> Each place on the town map is a chapter. I teach a short lesson, you answer a quick check, then you play a challenge.</p></div>
+  </section>`;let N=document.getElementById("toNext");N&&w&&N.addEventListener("click",()=>a0(w));let A=document.getElementById("toGrad");A&&A.addEventListener("click",()=>z("grad")),y("#toMap").addEventListener("click",()=>z("map")),y("#again").addEventListener("click",()=>a0(e))}function Ct(){re("badges");let e=R.progress.badges;V.innerHTML=`<section class="page"><p class="eyebrow">Collection</p><h1>Badges</h1><p class="lead">${e.length} of ${fe.length} earned. Each badge shows what you need to do.</p>
+    <div class="badge-grid">${fe.map(t=>Y0(t.id,e.includes(t.id))).join("")}</div></section>`}function vt(){re("help"),V.innerHTML=`<section class="page narrow"><p class="eyebrow">Guide</p><h1>How to play</h1>
+    <div class="ada-line">${de(56)}<p><b>Officer Ada:</b> Each place on the town map is a chapter. I teach a short lesson, you answer a quick check, then you play a challenge.</p></div>
     <h2>Points</h2><ul class="clean">
       <li><b>10 points</b> for each right answer. Reading each lesson gives 5 points.</li>
       <li><b>Streaks</b> multiply your points: 3 in a row is x1.5, 6 in a row is x2, 9 in a row is x3.</li>
@@ -2738,65 +425,28 @@
       <li>Replaying a chapter only counts if you beat your best score.</li></ul>
     <h2>Stars</h2><p>3 stars for 90% right or better. 2 stars for 70% or better. 1 star for finishing.</p>
     <h2>Night Watch</h2><p>After graduation, Night Watch opens 12 advanced levels. You write firewall rules, hunt through logs, and tune detection rules. Each solved level gives a passcode that unlocks the next one on any computer.</p>
+    <h2>Control Room</h2><p>Also after graduation: 10 levels on a simulated Linux server. You type real commands like <kbd>ls</kbd>, <kbd>grep</kbd>, <kbd>ifconfig</kbd> and <kbd>sudo ufw</kbd> to investigate logs and lock the server down.</p>
     <h2>Ranks</h2><p>Rookie, Cadet, Gate Guard, Analyst, Defender, and Chief of Security.</p>
     <h2>Keyboard</h2><p>In sorting games press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>. At the gate press <kbd>A</kbd> to allow and <kbd>B</kbd> to block.</p>
-    <h2>What gets saved?</h2><p>${trackingOn() ? "Your name, class code, answers, scores, and how long each step took are sent to your teacher's private spreadsheet. Nothing else." : "Your progress stays in this browser. Nothing is sent anywhere."}</p></section>`;
-  }
-  function showProfile() {
-    renderHeader("profile");
-    const prof = store.profile;
-    const p = store.progress;
-    const acc = p.answered ? Math.round(p.correct / p.answered * 100) : 0;
-    app.innerHTML = `<section class="page"><div class="profile-head">${avatar(prof.avatar, 72)}<div><p class="eyebrow">Player</p><h1>${esc(prof.name)}</h1><p class="muted">${prof.classCode ? "Class " + esc(prof.classCode) + " \xB7 " : ""}${rankFor(p.points).name}</p></div></div>
+    <h2>What gets saved?</h2><p>${ae()?"Your name, class code, answers, scores, and how long each step took are sent to your teacher's private spreadsheet. Nothing else.":"Your progress stays in this browser. Nothing is sent anywhere."}</p></section>`}function At(){re("profile");let e=R.profile,t=R.progress,s=t.answered?Math.round(t.correct/t.answered*100):0;V.innerHTML=`<section class="page"><div class="profile-head">${Ie(e.avatar,72)}<div><p class="eyebrow">Player</p><h1>${f(e.name)}</h1><p class="muted">${e.classCode?"Class "+f(e.classCode)+" \xB7 ":""}${Le(t.points).name}</p></div></div>
     <div class="res-grid">
-      <div><b>${p.points}</b><span>total points</span></div><div><b>${acc}%</b><span>answers right</span></div>
-      <div><b>${p.bestStreak}</b><span>best streak</span></div><div><b>${Math.round(p.playMs / 6e4)} min</b><span>time played</span></div></div>
+      <div><b>${t.points}</b><span>total points</span></div><div><b>${s}%</b><span>answers right</span></div>
+      <div><b>${t.bestStreak}</b><span>best streak</span></div><div><b>${Math.round(t.playMs/6e4)} min</b><span>time played</span></div></div>
     <div class="row-gap">
       <button class="btn" id="dl">Download my answers (CSV)</button>
-      <label class="switch"><input type="checkbox" id="snd" ${store.sound ? "checked" : ""}> Sound effects</label>
+      <label class="switch"><input type="checkbox" id="snd" ${R.sound?"checked":""}> Sound effects</label>
     </div>
-    <div class="card danger"><h3>Not ${esc(prof.name.split(" ")[0])}?</h3><p class="small">On a shared computer, switch player before you start. This clears the progress saved in this browser.</p><button class="btn" id="switch">Switch player</button></div>
-  </section>`;
-    $("#dl").addEventListener("click", () => download(`byteville-${prof.name.replace(/\W+/g, "_")}.csv`, myCsv()));
-    $("#snd").addEventListener("change", (e) => {
-      store.sound = e.target.checked;
-      persist();
-    });
-    $("#switch").addEventListener("click", () => modal("<h3>Switch player?</h3><p>This erases the points and badges saved in this browser. Answers already sent to your teacher stay safe.</p>", [
-      { label: "Cancel", onClick: () => void 0 },
-      { label: "Yes, switch player", primary: true, onClick: () => {
-        void flush();
-        resetProgress();
-        store.profile = null;
-        persist();
-        try {
-          localStorage.removeItem("byteville-log-v1");
-        } catch (_) {
-        }
-        go("welcome");
-      } }
-    ]));
-  }
-  function showGrad() {
-    renderHeader("map");
-    const p = store.progress;
-    if (p.done.length < CHAPTERS.length) return go("map");
-    confetti();
-    app.innerHTML = `<section class="cert">
+    <div class="card danger"><h3>Not ${f(e.name.split(" ")[0])}?</h3><p class="small">On a shared computer, switch player before you start. This clears the progress saved in this browser.</p><button class="btn" id="switch">Switch player</button></div>
+  </section>`,y("#dl").addEventListener("click",()=>C0(`byteville-${e.name.replace(/\W+/g,"_")}.csv`,y0())),y("#snd").addEventListener("change",o=>{R.sound=o.target.checked,j()}),y("#switch").addEventListener("click",()=>ie("<h3>Switch player?</h3><p>This erases the points and badges saved in this browser. Answers already sent to your teacher stay safe.</p>",[{label:"Cancel",onClick:()=>{}},{label:"Yes, switch player",primary:!0,onClick:()=>{Te(),L0(),R.profile=null,j();try{localStorage.removeItem("byteville-log-v1")}catch{}z("welcome")}}]))}function St(){re("map");let e=R.progress;if(e.done.length<Y.length)return z("map");we(),V.innerHTML=`<section class="cert">
     <div class="cert-inner">
-      <p class="eyebrow">Byteville Defenders Training Camp</p>
+      <img class="cert-logo" src="assets/logo-badge.jpg" alt="Byteville Defenders"><p class="eyebrow">Training Camp \xB7 Introduction to Cybersecurity</p>
       <h1>Certificate of Graduation</h1>
       <p>This certifies that</p>
-      <p class="cert-name">${esc(store.profile.name)}</p>
+      <p class="cert-name">${f(R.profile.name)}</p>
       <p>has protected all eight places in Byteville and learned the CIA triad, strong passwords and MFA, phishing, security controls, firewalls, rule order, intrusion detection, and intrusion prevention.</p>
-      <div class="cert-row"><span><b>${p.points}</b> points</span><span><b>${totalStars()}</b> of ${maxStars()} stars</span><span><b>${p.badges.length}</b> badges</span><span>Rank: <b>${rankFor(p.points).name}</b></span></div>
-      <div class="cert-sign">${ada(48)}<div><b>Officer Ada</b><small>Chief of Security, Byteville</small></div><span class="cert-date">${(/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { year: "numeric", month: "long", day: "numeric" })}</span></div>
+      <div class="cert-row"><span><b>${e.points}</b> points</span><span><b>${ze()}</b> of ${qe()} stars</span><span><b>${e.badges.length}</b> badges</span><span>Rank: <b>${Le(e.points).name}</b></span></div>
+      <div class="cert-sign">${de(48)}<div><b>Officer Ada</b><small>Chief of Security, Byteville</small></div><span class="cert-date">${new Date().toLocaleDateString(void 0,{year:"numeric",month:"long",day:"numeric"})}</span></div>
     </div>
     <p class="center muted">Take a screenshot to share it with your teacher. Want more stars? Replay any chapter from the map.</p>
-    <div class="row-gap center"><button class="btn btn-primary btn-big" id="gnw">Start Night Watch (advanced)</button><button class="btn" id="gm">Back to the map</button></div>
-  </section>`;
-    $("#gm").addEventListener("click", () => go("map"));
-    $("#gnw").addEventListener("click", () => go("nightwatch"));
-  }
-  go(store.profile ? "map" : "welcome");
-})();
+    <div class="row-gap center"><button class="btn btn-primary btn-big" id="gnw">Start Night Watch</button><button class="btn btn-big" id="gcr">Enter the Control Room</button><button class="btn" id="gm">Back to the map</button></div>
+  </section>`,y("#gm").addEventListener("click",()=>z("map")),y("#gnw").addEventListener("click",()=>z("nightwatch")),y("#gcr").addEventListener("click",()=>z("controlroom"))}z(R.profile?"map":"welcome");})();

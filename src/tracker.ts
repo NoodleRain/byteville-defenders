@@ -103,3 +103,18 @@ export function myCsv(): string {
   const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   return [cols.join(',')].concat(read(LOG_KEY).map(e => cols.map(k => esc(e[k])).join(','))).join('\n');
 }
+
+/** Ask the class server something and read its answer. Returns null if the server cannot be reached. */
+export async function serverPost<T>(body: Record<string, unknown>): Promise<T | null> {
+  const url = config().trackingUrl;
+  if (!url) return null;
+  const prof = store.profile;
+  try {
+    const r = await fetch(url, {
+      method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ key: config().classKey || '', session_id: prof ? prof.sessionId : '', student: prof ? prof.name : '', class_code: prof ? prof.classCode : '', ...body }),
+    });
+    if (!r.ok) return null;
+    return await r.json() as T;
+  } catch (_) { return null; }
+}

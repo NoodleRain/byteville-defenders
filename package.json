@@ -4,8 +4,7 @@
   "private": true,
   "description": "A guided cybersecurity game for beginners: security controls, firewalls, IDS and IPS.",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/main.ts --bundle --format=iife --target=es2019 --outfile=js/app.js",
-    "watch": "esbuild src/main.ts --bundle --format=iife --target=es2019 --outfile=js/app.js --watch",
+    "build": "node tools/build.cjs",
     "typecheck": "tsc --noEmit",
     "items": "esbuild src/content.ts --bundle --format=cjs --platform=node --outfile=analytics/.content.cjs --log-level=warning && node analytics/export_items.cjs"
   },

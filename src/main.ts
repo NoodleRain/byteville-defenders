@@ -11,6 +11,8 @@ import { askOne, runChoice } from './stages/choice';
 import { runInbox } from './stages/inbox';
 import { runLane } from './stages/lane';
 import { runOrder } from './stages/order';
+import { nightWatchOpen, showNightWatch } from './nightwatch/screen';
+import { showControlRoom } from './terminal/screen';
 
 const app = $('#app');
 
@@ -27,7 +29,7 @@ function renderHeader(active: string): void {
 }
 
 /* ================= router ================= */
-type Route = 'welcome' | 'map' | 'badges' | 'help' | 'profile' | 'grad';
+type Route = 'welcome' | 'map' | 'badges' | 'help' | 'profile' | 'grad' | 'nightwatch' | 'controlroom';
 function go(route: Route | string): void {
   if (!store.profile && route !== 'help') route = 'welcome';
   window.scrollTo(0, 0);
@@ -37,9 +39,24 @@ function go(route: Route | string): void {
     case 'help': return showHelp();
     case 'profile': return showProfile();
     case 'grad': return showGrad();
+    case 'nightwatch': renderHeader('nightwatch'); return showNightWatch(app, go);
+    case 'controlroom': renderHeader('controlroom'); return showControlRoom(app, go);
     default: return showWelcome();
   }
 }
+(() => {
+  const nav = document.querySelector('.nav');
+  if (nav && !nav.querySelector('[data-go="nightwatch"]')) {
+    const a = document.createElement('a');
+    a.href = '#'; a.dataset.go = 'nightwatch'; a.textContent = 'Night Watch'; a.className = 'nav-night';
+    nav.insertBefore(a, nav.querySelector('[data-go="help"]'));
+  }
+  if (nav && !nav.querySelector('[data-go="controlroom"]')) {
+    const c = document.createElement('a');
+    c.href = '#'; c.dataset.go = 'controlroom'; c.textContent = 'Control Room'; c.className = 'nav-night';
+    nav.insertBefore(c, nav.querySelector('[data-go="help"]'));
+  }
+})();
 document.querySelectorAll<HTMLAnchorElement>('[data-go]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); go(a.dataset.go || 'map'); }));
 
 /* ================= welcome ================= */
@@ -47,22 +64,22 @@ function showWelcome(): void {
   renderHeader('');
   let pickAv = 0;
   app.innerHTML = `
+  <div class="hero-banner"><img src="assets/hero.jpg" alt="Byteville Defenders: two knights guard a digital castle" width="1408" height="768"></div>
   <section class="welcome">
     <div class="welcome-copy">
       <p class="eyebrow">A cybersecurity training camp</p>
       <h1>Byteville needs <span class="hl">defenders.</span></h1>
       <p class="lead">Hackers are knocking on the town's doors. In about 45 minutes, Officer Ada will train you to spot tricks, choose strong locks, guard the city gate, and catch attacks hidden in plain sight.</p>
       <ul class="welcome-list">
-        <li><b>8 chapters</b> on one town map</li><li><b>Points, ranks, and 14 badges</b></li><li><b>A certificate</b> when you graduate</li>
+        <li><b>8 chapters</b> on one town map</li><li><b>Points, ranks, and 20 badges</b></li><li><b>A certificate</b> when you graduate</li>
       </ul>
-      <div class="town-art">${art('town')}</div>
     </div>
     <form class="signup card" id="signup" autocomplete="off">
       <div class="ada-line">${ada(56)}<p><b>Officer Ada:</b> Hi! I am the town's security chief. Tell me who you are and we will get started.</p></div>
       <label for="fName">Your first name and last initial</label>
       <input id="fName" maxlength="30" placeholder="Maya R." required>
       <label for="fClass">Class code <span class="muted">(from your teacher)</span></label>
-      <input id="fClass" maxlength="20" placeholder="CYBR-2000" value="${esc(config().defaultClassCode || '')}">
+      <input id="fClass" maxlength="20" placeholder="e.g. PERIOD-3" value="${esc(config().defaultClassCode || '')}">
       <span class="label">Pick your avatar</span>
       <div class="avatars" role="radiogroup" aria-label="Avatar">${[0, 1, 2, 3, 4, 5].map(i => `<button type="button" class="av${i === 0 ? ' on' : ''}" role="radio" aria-checked="${i === 0}" data-i="${i}">${avatar(i, 48)}</button>`).join('')}</div>
       <button class="btn btn-primary btn-big" type="submit">Start training</button>
@@ -127,21 +144,27 @@ function showMap(): void {
     }).join('')}
       <button class="lot grad${p.done.length === CHAPTERS.length ? ' next' : ' locked'}" data-go-grad ${p.done.length === CHAPTERS.length ? '' : 'disabled'}>
         <span class="lot-name">Graduation</span><span class="lot-topic">${p.done.length === CHAPTERS.length ? 'Get your certificate' : 'Finish all 8 places to unlock'}</span></button>
+      <button class="lot night${nightWatchOpen() ? '' : ' locked'}" data-go-nw ${nightWatchOpen() ? '' : 'disabled'}>
+        <span class="lot-name">Night Watch</span><span class="lot-topic">${nightWatchOpen() ? `Advanced: 12 hard levels · ${p.nwSolved.length}/12 solved` : 'Advanced levels. Unlocks after graduation'}</span></button>
+      <button class="lot night${nightWatchOpen() ? '' : ' locked'}" data-go-cr ${nightWatchOpen() ? '' : 'disabled'}>
+        <span class="lot-name">Control Room</span><span class="lot-topic">${nightWatchOpen() ? `Command line: 10 levels on a live server · ${p.opSolved.length}/10 solved` : 'Command-line levels. Unlocks after graduation'}</span></button>
     </div>
   </section>
   <section class="map-side">
     <div class="card"><h3>Latest badges</h3><div class="badge-row">${p.badges.length ? p.badges.slice(-4).map(id => badgeChip(id, true)).join('') : '<p class="muted small">Finish the Town Hall to earn your first badge.</p>'}</div>
       <a href="#" class="link" data-go="badges">See all badges</a></div>
-    <div class="card" id="lbCard"><h3>Class leaderboard</h3><p class="muted small">${trackingOn() ? 'Loading...' : 'The leaderboard appears when your teacher turns on class tracking.'}</p></div>
+    <div class="card" id="lbCard"><h3>Class leaderboard <small class="muted">(server-checked)</small></h3><p class="muted small">${trackingOn() ? 'Loading...' : 'The leaderboard appears when your teacher turns on class tracking.'}</p></div>
   </section>`;
   app.querySelectorAll<HTMLButtonElement>('.lot[data-ch]').forEach(b => b.addEventListener('click', () => startChapter(CHAPTERS.find(c => c.id === b.dataset.ch)!)));
   const g = app.querySelector('[data-go-grad]'); if (g) g.addEventListener('click', () => go('grad'));
+  const nwb = app.querySelector('[data-go-nw]'); if (nwb) nwb.addEventListener('click', () => go('nightwatch'));
+  const crb = app.querySelector('[data-go-cr]'); if (crb) crb.addEventListener('click', () => go('controlroom'));
   app.querySelectorAll<HTMLAnchorElement>('a[data-go]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); go(a.dataset.go!); }));
   if (trackingOn()) {
     void flush().then(() => leaderboard(store.profile!.classCode)).then(rows => {
       const card = $('#lbCard'); if (!card) return;
-      if (!rows) { card.innerHTML = '<h3>Class leaderboard</h3><p class="muted small">Not available right now.</p>'; return; }
-      card.innerHTML = `<h3>Class leaderboard</h3>${rows.length ? `<ol class="lb">${rows.slice(0, 8).map(r => `<li class="${r.student === store.profile!.name ? 'me' : ''}"><span>${esc(r.student)}</span><b>${r.points}</b></li>`).join('')}</ol>` : '<p class="muted small">No scores yet. Be the first!</p>'}`;
+      if (!rows) { card.innerHTML = '<h3>Class leaderboard <small class="muted">(server-checked)</small></h3><p class="muted small">Not available right now.</p>'; return; }
+      card.innerHTML = `<h3>Class leaderboard <small class="muted">(server-checked)</small></h3>${rows.length ? `<ol class="lb">${rows.slice(0, 8).map(r => `<li class="${r.student === store.profile!.name ? 'me' : ''}"><span>${esc(r.student)}</span><b>${r.points}</b></li>`).join('')}</ol>` : '<p class="muted small">No scores yet. Be the first!</p>'}`;
     });
   }
 }
@@ -349,6 +372,8 @@ function showHelp(): void {
       <li><b>Finish bonus:</b> 25 for every chapter, plus 25 more for 3 stars.</li>
       <li>Replaying a chapter only counts if you beat your best score.</li></ul>
     <h2>Stars</h2><p>3 stars for 90% right or better. 2 stars for 70% or better. 1 star for finishing.</p>
+    <h2>Night Watch</h2><p>After graduation, Night Watch opens 12 advanced levels. You write firewall rules, hunt through logs, and tune detection rules. Each solved level gives a passcode that unlocks the next one on any computer.</p>
+    <h2>Control Room</h2><p>Also after graduation: 10 levels on a simulated Linux server. You type real commands like <kbd>ls</kbd>, <kbd>grep</kbd>, <kbd>ifconfig</kbd> and <kbd>sudo ufw</kbd> to investigate logs and lock the server down.</p>
     <h2>Ranks</h2><p>Rookie, Cadet, Gate Guard, Analyst, Defender, and Chief of Security.</p>
     <h2>Keyboard</h2><p>In sorting games press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>. At the gate press <kbd>A</kbd> to allow and <kbd>B</kbd> to block.</p>
     <h2>What gets saved?</h2><p>${trackingOn() ? 'Your name, class code, answers, scores, and how long each step took are sent to your teacher\'s private spreadsheet. Nothing else.' : 'Your progress stays in this browser. Nothing is sent anywhere.'}</p></section>`;
@@ -384,7 +409,7 @@ function showGrad(): void {
   confetti();
   app.innerHTML = `<section class="cert">
     <div class="cert-inner">
-      <p class="eyebrow">Byteville Defenders Training Camp</p>
+      <img class="cert-logo" src="assets/logo-badge.jpg" alt="Byteville Defenders"><p class="eyebrow">Training Camp · Introduction to Cybersecurity</p>
       <h1>Certificate of Graduation</h1>
       <p>This certifies that</p>
       <p class="cert-name">${esc(store.profile!.name)}</p>
@@ -393,9 +418,11 @@ function showGrad(): void {
       <div class="cert-sign">${ada(48)}<div><b>Officer Ada</b><small>Chief of Security, Byteville</small></div><span class="cert-date">${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</span></div>
     </div>
     <p class="center muted">Take a screenshot to share it with your teacher. Want more stars? Replay any chapter from the map.</p>
-    <div class="row-gap center"><button class="btn" id="gm">Back to the map</button></div>
+    <div class="row-gap center"><button class="btn btn-primary btn-big" id="gnw">Start Night Watch</button><button class="btn btn-big" id="gcr">Enter the Control Room</button><button class="btn" id="gm">Back to the map</button></div>
   </section>`;
   $('#gm').addEventListener('click', () => go('map'));
+  $('#gnw').addEventListener('click', () => go('nightwatch'));
+  $('#gcr').addEventListener('click', () => go('controlroom'));
 }
 
 /* ================= start ================= */

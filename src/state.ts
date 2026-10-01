@@ -23,6 +23,14 @@ export interface Progress {
   answered: number;
   correct: number;
   playMs: number;
+  /** Night Watch: solved level ids and highest unlocked level number. */
+  nwSolved: string[];
+  nwUnlocked: number;
+  nwHints: Record<string, number>;
+  /** Control Room (terminal levels). */
+  opSolved: string[];
+  opUnlocked: number;
+  opHints: Record<string, number>;
 }
 
 interface SaveFile { profile: Profile | null; progress: Progress; sound: boolean; }
@@ -32,6 +40,8 @@ const KEY = 'byteville-defenders-v1';
 const fresh = (): Progress => ({
   points: 0, stars: {}, best: {}, badges: [], done: [], unlocked: 1,
   streak: 0, bestStreak: 0, quick: 0, answered: 0, correct: 0, playMs: 0,
+  nwSolved: [], nwUnlocked: 1, nwHints: {},
+  opSolved: [], opUnlocked: 1, opHints: {},
 });
 
 function load(): SaveFile {

@@ -381,6 +381,12 @@ export const BADGES: { id: string; name: string; how: string }[] = [
   { id: 'perfect', name: 'Perfectionist', how: 'Get 3 stars on 3 chapters' },
   { id: 'quick', name: 'Quick Thinker', how: '5 fast right answers at the gate' },
   { id: 'grad', name: 'Graduate', how: 'Finish all 8 chapters' },
+  { id: 'nw-first', name: 'Night Owl', how: 'Solve your first Night Watch level' },
+  { id: 'nw-half', name: 'Graveyard Shift', how: 'Solve 6 Night Watch levels' },
+  { id: 'nw-clean', name: 'No Hints Needed', how: 'Solve a Night Watch level from 7 up without hints' },
+  { id: 'nw-all', name: 'Sentinel', how: 'Solve all 12 Night Watch levels' },
+  { id: 'op-first', name: 'Logged In', how: 'Solve your first Control Room level' },
+  { id: 'op-all', name: 'Root of Trust', how: 'Solve all 10 Control Room levels' },
 ];
 
 export const PRAISE = ['Nice catch!', 'Great thinking!', 'You got it!', 'Sharp eyes!', 'Exactly right!', 'Well done, defender!'];
