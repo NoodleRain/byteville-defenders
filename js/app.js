@@ -693,7 +693,11 @@
     { id: "golden", name: "Golden Catch", how: "Handle a gold packet correctly" },
     { id: "perfect", name: "Perfectionist", how: "Get 3 stars on 3 chapters" },
     { id: "quick", name: "Quick Thinker", how: "5 fast right answers at the gate" },
-    { id: "grad", name: "Graduate", how: "Finish all 8 chapters" }
+    { id: "grad", name: "Graduate", how: "Finish all 8 chapters" },
+    { id: "nw-first", name: "Night Owl", how: "Solve your first Night Watch level" },
+    { id: "nw-half", name: "Graveyard Shift", how: "Solve 6 Night Watch levels" },
+    { id: "nw-clean", name: "No Hints Needed", how: "Solve a Night Watch level from 7 up without hints" },
+    { id: "nw-all", name: "Sentinel", how: "Solve all 12 Night Watch levels" }
   ];
   var PRAISE = ["Nice catch!", "Great thinking!", "You got it!", "Sharp eyes!", "Exactly right!", "Well done, defender!"];
   var ENCOURAGE = ["Almost! Here is the trick:", "Good try. Here is what to look for:", "Not this time. Remember:", "Close! Keep this in mind:"];
@@ -790,7 +794,10 @@
     quick: 0,
     answered: 0,
     correct: 0,
-    playMs: 0
+    playMs: 0,
+    nwSolved: [],
+    nwUnlocked: 1,
+    nwHints: {}
   });
   function load() {
     try {
@@ -1493,6 +1500,842 @@
     drawPuzzle(st.puzzles[0]);
   }
 
+  // src/nightwatch/engine.ts
+  var HOME_NET = "10.0.1.0/24";
+  function ipToInt(ip) {
+    const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return null;
+    const parts = m.slice(1).map(Number);
+    if (parts.some((p) => p > 255)) return null;
+    return (parts[0] << 24 >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+  }
+  function validAddr(spec) {
+    if (spec === "any" || spec === "$home_net") return true;
+    const [ip, bits] = spec.split("/");
+    if (ipToInt(ip) === null) return false;
+    if (bits === void 0) return true;
+    const b = Number(bits);
+    return /^\d+$/.test(bits) && b >= 0 && b <= 32;
+  }
+  function addrMatches(spec, ip) {
+    if (spec === "any") return true;
+    if (spec === "$home_net") spec = HOME_NET;
+    const [base, bits] = spec.split("/");
+    const a = ipToInt(base), b = ipToInt(ip);
+    if (a === null || b === null) return false;
+    if (bits === void 0) return a === b;
+    const n2 = Number(bits);
+    if (n2 === 0) return true;
+    const mask = 4294967295 << 32 - n2 >>> 0;
+    return (a & mask) >>> 0 === (b & mask) >>> 0;
+  }
+  function parsePorts(tok) {
+    if (tok === "any") return "any";
+    const list = tok.split(",").map((s) => s.trim());
+    if (list.some((s) => !/^\d+$/.test(s) || Number(s) > 65535)) return null;
+    return list.map(Number);
+  }
+  var ACTIONS = { allow: "allow", accept: "allow", pass: "allow", block: "block", deny: "block", drop: "block" };
+  function parseFirewall(src) {
+    const rules = [];
+    const errors = [];
+    src.split("\n").forEach((raw, i) => {
+      const text = raw.replace(/#.*$/, "").trim();
+      if (!text) return;
+      const t = text.toLowerCase().split(/\s+/);
+      const where = `Line ${i + 1}`;
+      if (t.length < 6 || t.length > 7) {
+        errors.push(`${where}: expected 6 parts, like  allow tcp any -> 10.0.1.10 443`);
+        return;
+      }
+      const [act, proto, s, arrow, d, port, extra] = t;
+      if (!ACTIONS[act]) {
+        errors.push(`${where}: start with allow or block, not "${act}".`);
+        return;
+      }
+      if (!["tcp", "udp", "icmp", "any"].includes(proto)) {
+        errors.push(`${where}: protocol must be tcp, udp, icmp, or any.`);
+        return;
+      }
+      if (arrow !== "->") {
+        errors.push(`${where}: put  ->  between the source and the destination.`);
+        return;
+      }
+      if (!validAddr(s)) {
+        errors.push(`${where}: "${s}" is not a valid source. Use any, an IP, or a block like 10.0.2.0/24.`);
+        return;
+      }
+      if (!validAddr(d)) {
+        errors.push(`${where}: "${d}" is not a valid destination.`);
+        return;
+      }
+      const ports = parsePorts(port);
+      if (ports === null) {
+        errors.push(`${where}: "${port}" is not a valid port. Use any, 443, or 80,443.`);
+        return;
+      }
+      if (extra !== void 0 && extra !== "established") {
+        errors.push(`${where}: the only word allowed at the end is "established".`);
+        return;
+      }
+      rules.push({ line: i + 1, text, action: ACTIONS[act], proto, src: s, dst: d, ports, established: extra === "established" });
+    });
+    return { rules, errors };
+  }
+  function fwMatch(r, p) {
+    if (r.proto !== "any" && r.proto !== p.proto) return false;
+    if (!addrMatches(r.src, p.src) || !addrMatches(r.dst, p.dst)) return false;
+    if (r.ports !== "any") {
+      if (p.proto === "icmp" || !r.ports.includes(p.port)) return false;
+    }
+    if (r.established && p.state !== "est") return false;
+    return true;
+  }
+  function fwDecide(rules, p) {
+    for (let i = 0; i < rules.length; i++) if (fwMatch(rules[i], p)) return { got: rules[i].action, by: i };
+    return { got: "allow", by: -1 };
+  }
+  function parseIds(src) {
+    const rules = [];
+    const errors = [];
+    src.split("\n").forEach((raw, i) => {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) return;
+      const where = `Line ${i + 1}`;
+      const m = line.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*\((.*)\)\s*$/);
+      if (!m) {
+        errors.push(`${where}: expected  alert tcp any any -> $HOME_NET 80 (content:"..."; )`);
+        return;
+      }
+      const [, act, proto, s, sp, arrow, d, dp, opts] = m;
+      if (act.toLowerCase() !== "alert") {
+        errors.push(`${where}: detection rules start with alert.`);
+        return;
+      }
+      const pr = proto.toLowerCase();
+      if (!["tcp", "udp", "icmp", "ip"].includes(pr)) {
+        errors.push(`${where}: protocol must be tcp, udp, icmp, or ip.`);
+        return;
+      }
+      if (arrow !== "->") {
+        errors.push(`${where}: put  ->  between source and destination.`);
+        return;
+      }
+      if (!validAddr(s.toLowerCase()) || !validAddr(d.toLowerCase())) {
+        errors.push(`${where}: check the addresses. Use any, an IP, a block like 10.0.1.0/24, or $HOME_NET.`);
+        return;
+      }
+      const sport = parsePorts(sp.toLowerCase()), dport = parsePorts(dp.toLowerCase());
+      if (sport === null || dport === null) {
+        errors.push(`${where}: ports must be any, a number, or a list like 80,443.`);
+        return;
+      }
+      const contents = [];
+      let msg = "";
+      const re = /\s*([a-z_]+)\s*(?::\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*)))?\s*;/gi;
+      const body = opts.trim().endsWith(";") ? opts : opts + ";";
+      let k;
+      let consumed = 0;
+      while (k = re.exec(body)) {
+        consumed += k[0].length;
+        const key = k[1].toLowerCase();
+        if (key === "content") {
+          if (k[2] === void 0) {
+            errors.push(`${where}: content needs quotes, like content:"OR 1=1";`);
+            return;
+          }
+          contents.push({ text: k[2].replace(/\\(.)/g, "$1"), nocase: false });
+        } else if (key === "nocase") {
+          if (!contents.length) {
+            errors.push(`${where}: nocase must come after a content.`);
+            return;
+          }
+          contents[contents.length - 1].nocase = true;
+        } else if (key === "msg") {
+          msg = k[2] || "";
+        } else if (key === "sid" || key === "rev" || key === "classtype") {
+        } else {
+          errors.push(`${where}: Night Watch understands content, nocase, msg, sid and rev. "${key}" is not one of them.`);
+          return;
+        }
+      }
+      if (body.slice(consumed).trim()) {
+        errors.push(`${where}: check the options. Each one ends with a semicolon.`);
+        return;
+      }
+      if (!contents.length) {
+        errors.push(`${where}: add at least one content:"..."; so the rule knows what to look for.`);
+        return;
+      }
+      rules.push({ line: i + 1, proto: pr, src: s.toLowerCase(), sport, dst: d.toLowerCase(), dport, contents, msg });
+    });
+    return { rules, errors };
+  }
+  function idsFires(r, e) {
+    if (r.proto !== "ip" && r.proto !== e.proto) return false;
+    if (!addrMatches(r.src, e.src) || !addrMatches(r.dst, e.dst)) return false;
+    if (r.dport !== "any" && !r.dport.includes(e.port)) return false;
+    return r.contents.every((c) => c.nocase ? e.payload.toLowerCase().includes(c.text.toLowerCase()) : e.payload.includes(c.text));
+  }
+  function idsDecide(rules, e) {
+    for (let i = 0; i < rules.length; i++) if (idsFires(rules[i], e)) return { got: "alert", by: i };
+    return { got: "quiet", by: -1 };
+  }
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = a + 1831565813 >>> 0;
+      let t = a;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function clock(startSec) {
+    const s = (startSec % 86400 + 86400) % 86400;
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+    return [h, m, x].map((v) => String(v).padStart(2, "0")).join(":");
+  }
+
+  // src/nightwatch/levels.ts
+  var NETWORK = [
+    ["10.0.1.10", "Web server (websites on 80 and 443)"],
+    ["10.0.1.53", "DNS server (name lookups, UDP 53)"],
+    ["10.0.1.0/24", "All servers. Same as $HOME_NET"],
+    ["10.0.5.0/24", "Admin laptops (IT staff)"],
+    ["10.0.2.0/24", "Student laptops"],
+    ["10.0.0.0/8", "Everything inside Byteville"],
+    ["203.0.113.0/24", 'The "bad neighborhood" (known attackers)']
+  ];
+  var P = (label, proto, src, dst, port, want, state = "new") => ({ label, proto, src, dst, port, want, state });
+  var E = (label, payload, want, dst = "10.0.1.10", port = 80, src = "198.51.100.40") => ({ label, proto: "tcp", src, dst, port, payload, want });
+  var FW_HEADER = "date       time     action proto src-ip          dst-ip      src-port dst-port";
+  function fwLine(t, action, proto, src, dst, sp, dp) {
+    return `2026-10-06 ${clock(t)} ${action.padEnd(6)} ${proto.padEnd(5)} ${src.padEnd(15)} ${dst.padEnd(11)} ${String(sp).padEnd(8)} ${dp}`;
+  }
+  var VISITORS = (r) => `${["198.51.100", "192.0.2"][Math.floor(r() * 2)]}.${2 + Math.floor(r() * 240)}`;
+  function knockLog() {
+    const r = rng(301);
+    const rows = [];
+    let t = 22 * 3600 + 5 * 60;
+    for (let i = 0; i < 70; i++) {
+      t += 3 + Math.floor(r() * 25);
+      const port = r() < 0.75 ? 443 : 80;
+      rows.push([t, fwLine(t, "ALLOW", "TCP", VISITORS(r), "10.0.1.10", 49152 + Math.floor(r() * 16e3), port)]);
+    }
+    for (const [ip, p] of [["192.0.2.14", 22], ["198.51.100.201", 3389], ["192.0.2.88", 23]]) {
+      const at = 22 * 3600 + 5 * 60 + Math.floor(r() * 1500);
+      rows.push([at, fwLine(at, "DROP", "TCP", ip, "10.0.1.10", 5e4 + Math.floor(r() * 9e3), p)]);
+    }
+    const scanner = "198.51.100.173";
+    let st = 22 * 3600 + 17 * 60 + 41;
+    [21, 22, 23, 25, 110, 135, 139, 445, 1433, 3306, 3389, 5900].forEach((p, i) => {
+      st += r() < 0.5 ? 0 : 1;
+      rows.push([st, fwLine(st, "DROP", "TCP", scanner, "10.0.1.10", 40100 + i, p)]);
+    });
+    rows.sort((a, b) => a[0] - b[0]);
+    return { log: rows.map((x) => x[1]), answer: scanner };
+  }
+  function openDoorLog() {
+    const r = rng(402);
+    const rows = [];
+    let t = 23 * 3600;
+    for (let i = 0; i < 80; i++) {
+      t += 2 + Math.floor(r() * 20);
+      rows.push([t, fwLine(t, "ALLOW", "TCP", VISITORS(r), "10.0.1.10", 49152 + Math.floor(r() * 16e3), r() < 0.8 ? 443 : 80)]);
+    }
+    const scanner = "192.0.2.61";
+    let st = 23 * 3600 + 9 * 60 + 12;
+    const ports = [20, 21, 22, 23, 25, 53, 110, 143, 445, 993, 1433, 3306, 3389, 5432, 5900, 8080, 8443, 9e3];
+    ports.forEach((p, i) => {
+      st += Math.floor(r() * 2);
+      rows.push([st, fwLine(st, p === 8443 ? "ALLOW" : "DROP", "TCP", scanner, "10.0.1.10", 51e3 + i, p)]);
+    });
+    rows.push([st + 30, fwLine(st + 30, "ALLOW", "TCP", scanner, "10.0.1.10", 51040, 443)]);
+    rows.sort((a, b) => a[0] - b[0]);
+    return { log: rows.map((x) => x[1]), answer: "8443" };
+  }
+  function bruteLog() {
+    const r = rng(707);
+    const rows = [];
+    const users = ["maya", "leo", "jcarter", "principal", "library", "coach"];
+    let t = 23 * 3600 + 30 * 60;
+    for (let i = 0; i < 45; i++) {
+      t += 10 + Math.floor(r() * 50);
+      const u = users[Math.floor(r() * users.length)];
+      const ip = `10.0.2.${10 + Math.floor(r() * 60)}`;
+      if (r() < 0.22) rows.push([t, `2026-10-06 ${clock(t)} sshd: Failed password for ${u} from ${ip} port ${5e4 + i}`]);
+      rows.push([t + 4, `2026-10-06 ${clock(t + 4)} sshd: Accepted password for ${u} from ${ip} port ${5e4 + i}`]);
+    }
+    const atk = "198.51.100.77";
+    let at = 23 * 3600 + 41 * 60 + 3;
+    const fails = 37;
+    for (let i = 0; i < fails; i++) {
+      at += 2 + Math.floor(r() * 3);
+      rows.push([at, `2026-10-06 ${clock(at)} sshd: Failed password for admin from ${atk} port ${41e3 + i}`]);
+    }
+    rows.push([at + 3, `2026-10-06 ${clock(at + 3)} sshd: Accepted password for admin from ${atk} port ${41e3 + fails}`]);
+    let b = 23 * 3600 + 52 * 60;
+    for (let i = 0; i < 6; i++) {
+      b += 5;
+      rows.push([b, `2026-10-06 ${clock(b)} sshd: Failed password for root from 192.0.2.140 port ${43e3 + i}`]);
+    }
+    rows.sort((a, c) => a[0] - c[0]);
+    return { log: rows.map((x) => x[1]), answer: String(fails) };
+  }
+  function slowLog() {
+    const r = rng(1111);
+    const rows = [];
+    let t = 1 * 3600;
+    const regulars = ["198.51.100.12", "192.0.2.200", "198.51.100.90", "192.0.2.7"];
+    for (let i = 0; i < 260; i++) {
+      t += 4 + Math.floor(r() * 36);
+      const ip = r() < 0.55 ? regulars[Math.floor(r() * regulars.length)] : VISITORS(r);
+      rows.push([t, fwLine(t, "ALLOW", "TCP", ip, "10.0.1.10", 49152 + Math.floor(r() * 16e3), r() < 0.7 ? 443 : 80)]);
+    }
+    for (let i = 0; i < 18; i++) {
+      const at = 3600 + i * 600 + 7;
+      rows.push([at, fwLine(at, "ALLOW", "ICMP", "10.0.5.9", "10.0.1.10", "-", "-")]);
+    }
+    for (let i = 0; i < 10; i++) {
+      const at = 3600 + Math.floor(r() * 1e4);
+      rows.push([at, fwLine(at, "DROP", "TCP", VISITORS(r), "10.0.1.10", 5e4 + i, [22, 23, 3389, 445][i % 4])]);
+    }
+    const scanner = "192.0.2.233";
+    let st = 3600 + 4 * 60;
+    [21, 22, 23, 25, 110, 139, 445, 1433, 3306, 3389, 5432, 5900, 6379, 8080].forEach((p, i) => {
+      st += 540 + Math.floor(r() * 240);
+      rows.push([st, fwLine(st, "DROP", "TCP", scanner, "10.0.1.10", 33e3 + i * 7, p)]);
+      if (i % 4 === 0) rows.push([st + 61, fwLine(st + 61, "ALLOW", "TCP", scanner, "10.0.1.10", 33300 + i, 443)]);
+    });
+    rows.sort((a, b) => a[0] - b[0]);
+    return { log: rows.map((x) => x[1]), answer: scanner };
+  }
+  var L3 = knockLog();
+  var L4 = openDoorLog();
+  var L7 = bruteLog();
+  var L11 = slowLog();
+  var NW_LEVELS = [
+    {
+      id: "nw1",
+      num: 1,
+      kind: "rules",
+      title: "Lights Out",
+      skill: "Default deny",
+      passcode: "amber-lantern",
+      story: "It is 10 PM. The night firewall has only one rule, and this firewall lets through anything that no rule matches.",
+      task: "Only secure web traffic (TCP 443) may reach the web server. Everything else must be blocked. Edit the rules, then press Run.",
+      starter: "# Allow secure web traffic to the web server\nallow tcp any -> 10.0.1.10 443\n",
+      hints: ['Run it first. Which packets got through that should not? The "rule" column says no rule matched them.', "Add a last line that catches everything:  block any any -> any any"],
+      packets: [
+        P("Visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
+        P("Another visitor opens the website", "tcp", "192.0.2.30", "10.0.1.10", 443, "allow"),
+        P("Stranger tries remote login", "tcp", "198.51.100.7", "10.0.1.10", 22, "block"),
+        P("Stranger tries remote desktop", "tcp", "192.0.2.99", "10.0.1.10", 3389, "block"),
+        P("Stranger pings the server", "icmp", "198.51.100.9", "10.0.1.10", 0, "block"),
+        P("Stranger reaches for a database", "tcp", "192.0.2.8", "10.0.1.20", 3306, "block")
+      ]
+    },
+    {
+      id: "nw2",
+      num: 2,
+      kind: "rules",
+      title: "Two Doors and a Phone Book",
+      skill: "Ports and protocols",
+      passcode: "quiet-harbor",
+      maxRules: 4,
+      story: "The web server needs both of its doors (80 and 443). The DNS server answers name lookups on UDP port 53.",
+      task: "Allow TCP 80 and 443 to the web server and UDP 53 to the DNS server. Block everything else. Use 4 rules or fewer.",
+      starter: "# Write your rules here. One rule per line.\n",
+      hints: ["One rule can list two ports with a comma:  allow tcp any -> 10.0.1.10 80,443", "DNS uses udp, not tcp. Then finish with  block any any -> any any"],
+      packets: [
+        P("Visitor opens the website (HTTP)", "tcp", "198.51.100.7", "10.0.1.10", 80, "allow"),
+        P("Visitor opens the website (HTTPS)", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
+        P("Laptop looks up a name", "udp", "10.0.2.15", "10.0.1.53", 53, "allow"),
+        P("Name lookup sent to the web server by mistake", "udp", "10.0.2.15", "10.0.1.10", 53, "block"),
+        P("TCP to the DNS server on port 53", "tcp", "192.0.2.44", "10.0.1.53", 53, "block"),
+        P("Website request sent to the DNS server", "tcp", "198.51.100.7", "10.0.1.53", 80, "block"),
+        P("Stranger tries remote login on the DNS server", "tcp", "192.0.2.99", "10.0.1.53", 22, "block"),
+        P("HTTPS to a different server", "tcp", "198.51.100.7", "10.0.1.11", 443, "block")
+      ]
+    },
+    {
+      id: "nw3",
+      num: 3,
+      kind: "log",
+      title: "Knock Knock",
+      skill: "Reading a firewall log",
+      passcode: "copper-falcon",
+      story: "Around 10:17 PM someone tried a lot of doors on the web server in just a few seconds. That is a port scan.",
+      task: "Find the IP address that scanned the server. Tip: type DROP in the filter box.",
+      question: "Which IP address scanned the server?",
+      placeholder: "e.g. 192.0.2.1",
+      header: FW_HEADER,
+      log: L3.log,
+      answer: L3.answer,
+      hints: ["Filter for DROP. A few addresses were dropped once. One was dropped many times.", "Look for one IP hitting many different ports within the same few seconds."]
+    },
+    {
+      id: "nw4",
+      num: 4,
+      kind: "log",
+      title: "The Open Door",
+      skill: "Finding a mistake in the rules",
+      passcode: "silver-meadow",
+      story: "Another scan, at 11:09 PM. This time one of the doors it tried was open, because someone forgot an old rule.",
+      task: "Find the port the scanner reached that is NOT a normal website port.",
+      question: "Which port did the scanner find open?",
+      placeholder: "a port number",
+      header: FW_HEADER,
+      log: L4.log,
+      answer: L4.answer,
+      hints: ["First find the scanner's IP (filter for DROP). Then filter for that IP.", "Among the scanner's lines, look for ALLOW. Ignore 443, which is the normal website."]
+    },
+    {
+      id: "nw5",
+      num: 5,
+      kind: "rules",
+      title: "Bad Neighborhood",
+      skill: "Rule order and exceptions",
+      passcode: "velvet-compass",
+      story: "All of 203.0.113.0/24 is known trouble, so the whole block is banned. But one partner company, 203.0.113.50, needs to reach the website.",
+      task: "The rules are right, but in the wrong order. Fix the order so every test passes.",
+      starter: "block any 203.0.113.0/24 -> any any\nallow tcp any -> 10.0.1.10 443\nallow tcp 203.0.113.50 -> 10.0.1.10 443\nblock any any -> any any\n",
+      hints: ["First match wins. Which rule catches the partner before the partner rule is ever read?", "Move the partner rule to the very top. An exception always goes above the rule it is an exception to."],
+      packets: [
+        P("Partner opens the website", "tcp", "203.0.113.50", "10.0.1.10", 443, "allow"),
+        P("Partner tries remote login", "tcp", "203.0.113.50", "10.0.1.10", 22, "block"),
+        P("Bad neighbor opens the website", "tcp", "203.0.113.66", "10.0.1.10", 443, "block"),
+        P("Bad neighbor tries HTTP", "tcp", "203.0.113.9", "10.0.1.10", 80, "block"),
+        P("Normal visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
+        P("Normal visitor tries remote login", "tcp", "198.51.100.7", "10.0.1.10", 22, "block")
+      ]
+    },
+    {
+      id: "nw6",
+      num: 6,
+      kind: "rules",
+      title: "Admins Only",
+      skill: "Least privilege with address blocks",
+      passcode: "maple-signal",
+      maxRules: 4,
+      story: "Remote login (SSH, port 22) is how IT fixes servers. Only the admin laptops in 10.0.5.0/24 should ever use it.",
+      task: "Anyone may open the website (443 on 10.0.1.10). Admin laptops may SSH to any server in 10.0.1.0/24. Block everything else. 4 rules or fewer.",
+      starter: "# Write your rules here.\n",
+      hints: ["Address blocks work as source or destination:  allow tcp 10.0.5.0/24 -> 10.0.1.0/24 22", "Three rules are enough: the website rule, the admin SSH rule, and block any any -> any any"],
+      packets: [
+        P("Admin fixes the web server", "tcp", "10.0.5.20", "10.0.1.10", 22, "allow"),
+        P("Admin fixes the DNS server", "tcp", "10.0.5.31", "10.0.1.53", 22, "allow"),
+        P("Student tries SSH to the web server", "tcp", "10.0.2.15", "10.0.1.10", 22, "block"),
+        P("Stranger tries SSH from the Internet", "tcp", "192.0.2.99", "10.0.1.10", 22, "block"),
+        P("Admin tries remote desktop", "tcp", "10.0.5.20", "10.0.1.10", 3389, "block"),
+        P("Admin SSH to a student laptop", "tcp", "10.0.5.20", "10.0.2.15", 22, "block"),
+        P("Visitor opens the website", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
+        P("Student opens the website", "tcp", "10.0.2.15", "10.0.1.10", 443, "allow")
+      ]
+    },
+    {
+      id: "nw7",
+      num: 7,
+      kind: "log",
+      title: "Count the Guesses",
+      skill: "Spotting password guessing",
+      passcode: "cedar-beacon",
+      story: "This is the login log for the servers. Students mistype passwords sometimes. But one address kept guessing the admin password until it got in.",
+      task: "Count how many times the attacker failed before the successful login.",
+      question: "How many failed logins did the attacker make before getting in?",
+      placeholder: "a number",
+      header: "date       time     message",
+      log: L7.log,
+      answer: L7.answer,
+      hints: ['Filter for "Accepted password for admin". Which IP got in?', 'Now filter for that IP and count the "Failed" lines. The counter under the log helps.']
+    },
+    {
+      id: "nw8",
+      num: 8,
+      kind: "rules",
+      title: "Remember Me",
+      skill: "Stateful filtering",
+      passcode: "harbor-thistle",
+      maxRules: 4,
+      story: "Student laptops (10.0.2.0/24) should browse the web. Replies to their requests must come back in. Nobody outside may start a new connection to a laptop.",
+      task: "Let laptops start web connections out (TCP 80, 443). Let replies come back in. Block everything else. Add the word established to the end of a rule to match only replies.",
+      starter: "# Example of the new word:\n# allow tcp any -> 10.0.2.0/24 any established\n",
+      hints: ["Replies come back to a random high port on the laptop, so the reply rule uses port any plus established.", "Three rules: laptops out on 80,443; replies in with established; then block any any -> any any"],
+      packets: [
+        P("Laptop opens a website (HTTPS)", "tcp", "10.0.2.15", "198.51.100.25", 443, "allow"),
+        P("Laptop opens a website (HTTP)", "tcp", "10.0.2.40", "198.51.100.25", 80, "allow"),
+        P("The website replies to the laptop", "tcp", "198.51.100.25", "10.0.2.15", 51544, "allow", "est"),
+        P("Stranger tries file sharing on a laptop", "tcp", "192.0.2.99", "10.0.2.15", 445, "block"),
+        P("Stranger tries remote desktop on a laptop", "tcp", "192.0.2.99", "10.0.2.40", 3389, "block"),
+        P('Fake "reply" with no conversation in the table', "tcp", "198.51.100.88", "10.0.2.15", 51544, "block"),
+        P("Laptop connects to a chat port used by botnets", "tcp", "10.0.2.15", "192.0.2.50", 6667, "block"),
+        P("Stranger pings a laptop", "icmp", "192.0.2.99", "10.0.2.15", 0, "block")
+      ]
+    },
+    {
+      id: "nw9",
+      num: 9,
+      kind: "detect",
+      title: "First Alert",
+      skill: "Writing a detection rule",
+      passcode: "lantern-orchid",
+      story: "The IDS watches web traffic to the servers. Someone wrote a rule for SQL injection, but attackers change upper and lower case to slip past it.",
+      task: "Make the rule alert on every SQL injection attempt and stay quiet on normal searches.",
+      starter: 'alert tcp any any -> $HOME_NET 80 (msg:"SQL injection"; content:"OR 1=1"; sid:1000001;)\n',
+      hints: ["Run it. Which attacks were missed? Look at the letters: OR, or, Or.", "Add  nocase;  right after the content so upper and lower case both match."],
+      events: [
+        E("Classic injection", "GET /search?q=' OR 1=1 --", "alert"),
+        E("Lower-case injection", "GET /login?user=admin' or 1=1--", "alert"),
+        E("Mixed-case injection", "POST /login user=admin' Or 1=1 #", "alert"),
+        E("Normal search", "GET /search?q=library hours", "quiet"),
+        E('Normal search with "or"', "GET /search?q=1 or 2 day field trip", "quiet"),
+        E("Normal page", "GET /courses/cybr2000", "quiet")
+      ]
+    },
+    {
+      id: "nw10",
+      num: 10,
+      kind: "detect",
+      title: "Too Much Noise",
+      skill: "Tuning false positives",
+      passcode: "willow-cipher",
+      story: 'The IDS team is drowning in alerts. This rule fires on anything that says "script", including the drama club and the coding class.',
+      task: "Tune the rule: catch every script attack, and zero false alarms.",
+      starter: 'alert tcp any any -> $HOME_NET 80 (msg:"Script attack"; content:"script"; nocase; sid:1000002;)\n',
+      hints: ["What do all the real attacks have that the normal pages do not? Look right before the word.", 'Change the content to "<script" and keep nocase.'],
+      events: [
+        E("Attack in a comment", "POST /comment text=<script>steal(cookie)<\/script>", "alert"),
+        E("Attack in capitals", "GET /search?q=<SCRIPT SRC=//evil.example/x.js>", "alert"),
+        E("Attack in mixed case", "POST /profile bio=<ScRiPt>alert(1)<\/ScRiPt>", "alert"),
+        E("Drama club script", "GET /drama/script-for-the-play.pdf", "quiet"),
+        E("Coding class page", "GET /cs/javascript-basics.html", "quiet"),
+        E("Movie search", "GET /search?q=movie script ideas", "quiet"),
+        E("Python lesson", "GET /cs/python-script-homework.py", "quiet")
+      ]
+    },
+    {
+      id: "nw11",
+      num: 11,
+      kind: "log",
+      title: "Low and Slow",
+      skill: "Finding a hidden pattern",
+      passcode: "granite-sparrow",
+      story: "Three hours of overnight traffic. A careful attacker is scanning one port every ten minutes so nobody notices. Busy normal visitors make far more noise.",
+      task: "Find the slow scanner. Counting lines will fool you. Count different ports instead.",
+      question: "Which IP address is scanning slowly?",
+      placeholder: "e.g. 192.0.2.1",
+      header: FW_HEADER,
+      log: L11.log,
+      answer: L11.answer,
+      hints: ["Filter for DROP. Most dropped addresses appear once. One keeps coming back.", "The scanner also visits port 443 now and then to look normal. Which IP has DROP lines on many different ports?"]
+    },
+    {
+      id: "nw12",
+      num: 12,
+      kind: "rules",
+      title: "Night Shift",
+      skill: "The whole firewall",
+      passcode: "sentinel-dawn",
+      maxRules: 7,
+      story: "The night shift chief has called in sick. You write the whole firewall for Byteville tonight.",
+      task: "In 7 rules or fewer: (1) nothing at all from 203.0.113.0/24. (2) Anyone may reach the web server on 80 and 443. (3) Anything inside Byteville (10.0.0.0/8) may use DNS: UDP 53 to 10.0.1.53. (4) SSH to servers only from admin laptops. (5) Student laptops may start web connections out on 80 and 443. (6) Replies may come back to student laptops. (7) Block everything else.",
+      starter: "# Your firewall. 7 rules or fewer.\n",
+      hints: ['Put the bad neighborhood rule first. Otherwise a "reply" from that neighborhood would be let in by your replies rule.', "One rule per requirement, in the same order as the list, works."],
+      packets: [
+        P("Visitor opens the website (HTTPS)", "tcp", "198.51.100.7", "10.0.1.10", 443, "allow"),
+        P("Visitor opens the website (HTTP)", "tcp", "192.0.2.30", "10.0.1.10", 80, "allow"),
+        P("Bad neighbor opens the website", "tcp", "203.0.113.66", "10.0.1.10", 443, "block"),
+        P("Student laptop looks up a name", "udp", "10.0.2.15", "10.0.1.53", 53, "allow"),
+        P("Outsider uses our DNS server", "udp", "198.51.100.7", "10.0.1.53", 53, "block"),
+        P("Admin SSH to the DNS server", "tcp", "10.0.5.20", "10.0.1.53", 22, "allow"),
+        P("Student tries SSH to the web server", "tcp", "10.0.2.15", "10.0.1.10", 22, "block"),
+        P("Outsider tries SSH", "tcp", "192.0.2.99", "10.0.1.10", 22, "block"),
+        P("Laptop opens a website", "tcp", "10.0.2.15", "198.51.100.25", 443, "allow"),
+        P("Website replies to the laptop", "tcp", "198.51.100.25", "10.0.2.15", 51544, "allow", "est"),
+        P("Outsider tries file sharing on a laptop", "tcp", "192.0.2.99", "10.0.2.15", 445, "block"),
+        P('"Reply" from the bad neighborhood', "tcp", "203.0.113.9", "10.0.2.15", 51544, "block", "est"),
+        P("Laptop sends email straight out (spam bot)", "tcp", "10.0.2.15", "198.51.100.25", 25, "block"),
+        P("Outsider pings the web server", "icmp", "198.51.100.9", "10.0.1.10", 0, "block"),
+        P("Admin tries remote desktop", "tcp", "10.0.5.20", "10.0.1.10", 3389, "block"),
+        P("Laptop SSH to the Internet", "tcp", "10.0.2.15", "198.51.100.25", 22, "block")
+      ]
+    }
+  ];
+  var nwBase = (n2) => 40 + n2 * 10;
+
+  // src/nightwatch/screen.ts
+  function nightWatchOpen() {
+    const c = config();
+    return c.nightWatchOpen === true || store.progress.done.length >= CHAPTERS.length;
+  }
+  function badge(id2) {
+    const b = award(id2);
+    if (b) {
+      sfx.badge();
+      toast(`Badge unlocked: <b>${b}</b>`, "badge");
+    }
+  }
+  var nwPoints = () => NW_LEVELS.reduce((a, l) => a + (store.progress.best[l.id] || 0), 0);
+  var maxNw = () => NW_LEVELS.reduce((a, l) => a + nwBase(l.num), 0);
+  var KIND = { rules: "Firewall rules", log: "Log hunt", detect: "Detection rule" };
+  function showNightWatch(app2, go2) {
+    const p = store.progress;
+    if (!nightWatchOpen()) {
+      app2.innerHTML = `<section class="nw"><div class="nw-hero"><p class="eyebrow nw-eye">After graduation</p><h1>Night Watch is locked</h1>
+      <p>Night Watch opens after you protect all 8 places in Byteville and graduate. Then the real night shift begins: harder levels, no multiple choice.</p>
+      <button class="btn btn-primary" id="nwBack">Back to the town map</button></div></section>`;
+      $("#nwBack").addEventListener("click", () => go2("map"));
+      return;
+    }
+    const solved = p.nwSolved.length;
+    app2.innerHTML = `<section class="nw">
+    <div class="nw-hero">
+      <svg class="nw-moon" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="30" fill="#FFE7B8"/><circle cx="54" cy="30" r="26" fill="var(--night)"/></svg>
+      <p class="eyebrow nw-eye">Advanced \xB7 12 levels</p>
+      <h1>Byteville: Night Watch</h1>
+      <p class="nw-lead">The town is asleep. You are not. No multiple choice here: you write the firewall rules, read the raw logs, and tune the alarms yourself. Solve a level to get its passcode and unlock the next one.</p>
+      <div class="nw-stats"><span><b>${solved}</b>/12 solved</span><span><b>${nwPoints()}</b>/${maxNw()} points</span></div>
+    </div>
+    <div class="nw-grid">
+      <div class="nw-levels">${NW_LEVELS.map((l) => {
+      const done = p.nwSolved.includes(l.id);
+      const open = l.num <= p.nwUnlocked;
+      return `<button class="nw-tile${done ? " done" : ""}${open ? "" : " locked"}" data-l="${l.num}" ${open ? "" : "disabled"}>
+          <span class="nw-num">${String(l.num).padStart(2, "0")}</span>
+          <span class="nw-title">${esc(l.title)}</span>
+          <span class="nw-kind">${KIND[l.kind]} \xB7 ${esc(l.skill)}</span>
+          <span class="nw-foot">${done ? `<b>Solved</b> \xB7 ${p.best[l.id]} pts` : open ? `Worth ${nwBase(l.num)} pts` : "Locked"}</span></button>`;
+    }).join("")}</div>
+      <aside class="nw-side">
+        <div class="nw-card"><h3>Have a passcode?</h3><p class="small">On a new computer, type the passcode from your last solved level to jump back in.</p>
+          <form id="pcForm" class="pc-row"><label for="pcIn" class="sr">Passcode</label><input id="pcIn" placeholder="word-word" autocomplete="off"><button class="btn btn-small btn-primary">Unlock</button></form>
+          <p class="small" id="pcMsg" aria-live="polite"></p></div>
+        <div class="nw-card"><h3>Byteville network</h3>${netTable()}</div>
+        <div class="nw-card"><h3>Scoring</h3><p class="small">Each level is worth more than the last. Each hint costs a quarter of the level's points. Each wrong try costs 5 points. Only your best score counts.</p></div>
+      </aside>
+    </div></section>`;
+    app2.querySelectorAll(".nw-tile").forEach((b) => b.addEventListener("click", () => playLevel(app2, go2, NW_LEVELS[Number(b.dataset.l) - 1])));
+    $("#pcForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = $("#pcIn").value.trim().toLowerCase();
+      const lv = NW_LEVELS.find((l) => l.passcode === v);
+      const msg = $("#pcMsg");
+      if (!lv) {
+        msg.textContent = "That passcode is not right. Check the spelling.";
+        sfx.wrong();
+        return;
+      }
+      const next = Math.min(NW_LEVELS.length, lv.num + 1);
+      if (next > p.nwUnlocked) {
+        p.nwUnlocked = next;
+        persist();
+      }
+      sfx.right();
+      showNightWatch(app2, go2);
+      toast(`Unlocked up to level ${next}.`);
+    });
+  }
+  function netTable() {
+    return `<table class="net">${NETWORK.map(([a, d]) => `<tr><td class="mono">${a}</td><td>${esc(d)}</td></tr>`).join("")}</table>`;
+  }
+  var FW_HELP = `<pre class="syntax">allow|block  proto  source -> destination  port  [established]</pre>
+<ul class="small tight"><li><b>proto</b>: tcp, udp, icmp, or any</li><li><b>source, destination</b>: any, an IP, or a block like 10.0.2.0/24</li>
+<li><b>port</b>: any, 443, or 80,443</li><li><b>established</b> (optional): match only replies</li><li>Read top to bottom. <b>First match wins.</b></li><li>Lines starting with # are notes.</li></ul>`;
+  var IDS_HELP = `<pre class="syntax">alert tcp any any -> $HOME_NET 80 (msg:"..."; content:"..."; nocase; sid:1000001;)</pre>
+<ul class="small tight"><li><b>content</b>: text that must appear in the traffic</li><li><b>nocase</b>: ignore upper and lower case for the content before it</li>
+<li>More than one content: all of them must appear</li><li><b>$HOME_NET</b> means our servers, 10.0.1.0/24</li></ul>`;
+  function playLevel(app2, go2, lv) {
+    const p = store.progress;
+    let tries = 0;
+    let hints = p.nwHints[lv.id] || 0;
+    let solved = false;
+    let t0 = performance.now();
+    const started = Date.now();
+    const body = lv.kind === "log" ? logBody(lv) : `
+    <label class="nw-label" for="ed">${lv.kind === "rules" ? "Your firewall rules" : "Your detection rule"}${lv.kind === "rules" && lv.maxRules ? ` <span class="muted">(max ${lv.maxRules} rules)</span>` : ""}</label>
+    <textarea id="ed" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" rows="${lv.kind === "rules" ? 9 : 5}">${esc(lv.starter)}</textarea>
+    <div class="row-gap"><button class="btn btn-primary" id="run">Run tests</button><button class="btn btn-small btn-ghost" id="reset">Reset to start</button></div>`;
+    app2.innerHTML = `<section class="nw nw-play">
+    <div class="nw-bar"><button class="btn btn-small" id="back">&larr; Night Watch</button>
+      <div><small>Level ${lv.num} \xB7 ${KIND[lv.kind]}</small><b>${esc(lv.title)}</b></div><span class="nw-worth">Worth <b id="worth">${worth()}</b> pts</span></div>
+    <div class="nw-mission"><p>${esc(lv.story)}</p>${taskHtml(lv.task)}</div>
+    <div class="nw-work">
+      <div class="nw-main">${body}<div id="msg" class="nw-msg" aria-live="polite"></div><div id="results"></div></div>
+      <aside class="nw-side">
+        ${lv.kind !== "log" ? `<div class="nw-card"><h3>How to write it</h3>${lv.kind === "rules" ? FW_HELP : IDS_HELP}</div>` : ""}
+        <div class="nw-card"><h3>Hints</h3><div id="hints">${hintHtml()}</div></div>
+        <div class="nw-card"><h3>Network</h3>${netTable()}</div>
+      </aside>
+    </div></section>`;
+    function worth() {
+      const b = nwBase(lv.num);
+      return Math.max(Math.round(b * 0.25), Math.round(b * (1 - 0.25 * hints)) - 5 * tries);
+    }
+    function hintHtml() {
+      return lv.hints.map((h, i) => i < hints ? `<p class="hint-open"><b>Hint ${i + 1}:</b> ${esc(h)}</p>` : "").join("") + (hints < 2 && !solved ? `<button class="btn btn-small" id="hintBtn">Show hint ${hints + 1} (costs ${Math.round(nwBase(lv.num) * 0.25)} pts)</button>` : "");
+    }
+    function wireHint() {
+      const b = document.getElementById("hintBtn");
+      if (b) b.addEventListener("click", () => {
+        hints++;
+        p.nwHints[lv.id] = Math.max(p.nwHints[lv.id] || 0, hints);
+        persist();
+        track({ event: "answer", chapter: "nw", item_id: `${lv.id}-hint${hints}`, prompt: `${lv.title}: opened hint ${hints}`, choice: "hint", correct: "", points: 0 });
+        $("#hints").innerHTML = hintHtml();
+        $("#worth").textContent = String(worth());
+        wireHint();
+      });
+    }
+    wireHint();
+    $("#back").addEventListener("click", () => showNightWatch(app2, go2));
+    const msg = $("#msg");
+    const say = (html, kind) => {
+      msg.className = "nw-msg " + kind;
+      msg.innerHTML = html;
+    };
+    function submit(submission, ok) {
+      const ms = Math.round(performance.now() - t0);
+      t0 = performance.now();
+      if (!ok) {
+        tries++;
+        $("#worth").textContent = String(worth());
+        sfx.wrong();
+        track({ event: "answer", chapter: "nw", item_id: lv.id, prompt: lv.title, choice: submission.slice(0, 280), correct: 0, time_ms: ms, points: 0 });
+        return;
+      }
+      solved = true;
+      const pts = worth();
+      const prev = p.best[lv.id] || 0;
+      p.best[lv.id] = Math.max(prev, pts);
+      p.points = Object.values(p.best).reduce((a, b) => a + b, 0);
+      if (!p.nwSolved.includes(lv.id)) p.nwSolved.push(lv.id);
+      p.nwUnlocked = Math.max(p.nwUnlocked, Math.min(NW_LEVELS.length, lv.num + 1));
+      p.playMs += Date.now() - started;
+      persist();
+      track({ event: "answer", chapter: "nw", item_id: lv.id, prompt: lv.title, choice: submission.slice(0, 280), correct: 1, time_ms: ms, points: pts });
+      track({ event: "chapter_complete", chapter: lv.id, item_id: `${lv.id}-done`, prompt: `Night Watch ${lv.num}: ${lv.title}`, choice: `${hints} hints`, correct: tries, time_ms: Date.now() - started, points: pts, total_points: p.points });
+      void flush();
+      badge("nw-first");
+      if (p.nwSolved.length >= 6) badge("nw-half");
+      if (lv.num >= 7 && hints === 0) badge("nw-clean");
+      const all = p.nwSolved.length === NW_LEVELS.length;
+      if (all) badge("nw-all");
+      sfx.win();
+      confetti();
+      const next = NW_LEVELS[lv.num];
+      modal(
+        `<p class="eyebrow">Level ${lv.num} solved</p><h3>${esc(lv.title)}: cleared!</h3>
+      <p><b>+${pts} points</b>${prev && pts <= prev ? ` (your best is still ${prev})` : ""}. ${tries ? `${tries} wrong ${tries === 1 ? "try" : "tries"}` : "First try"}${hints ? `, ${hints} hint${hints > 1 ? "s" : ""}` : ", no hints"}.</p>
+      <div class="passcode">Passcode for the next level: <b>${lv.passcode}</b></div>
+      <p class="small muted">Write it down. It unlocks level ${Math.min(12, lv.num + 1)} on any computer.</p>${all ? "<p><b>You solved all 12. You are a Byteville Sentinel.</b></p>" : ""}`,
+        next ? [{ label: `Next: ${next.title}`, primary: true, onClick: () => playLevel(app2, go2, next) }, { label: "Night Watch", onClick: () => showNightWatch(app2, go2) }] : [{ label: "Back to Night Watch", primary: true, onClick: () => showNightWatch(app2, go2) }]
+      );
+    }
+    if (lv.kind === "rules" || lv.kind === "detect") {
+      const ed = $("#ed");
+      $("#reset").addEventListener("click", () => {
+        ed.value = lv.starter;
+        say("", "info");
+        $("#results").innerHTML = "";
+      });
+      ed.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          $("#run").click();
+        }
+      });
+      $("#run").addEventListener("click", () => {
+        if (solved) return;
+        if (lv.kind === "rules") runRules(lv, ed.value);
+        else runDetect(lv, ed.value);
+      });
+    } else {
+      wireLog(lv);
+    }
+    function runRules(L, src) {
+      const { rules, errors } = parseFirewall(src);
+      if (errors.length) {
+        say(`<b>Fix this first:</b><br>${errors.map(esc).join("<br>")}`, "no");
+        $("#results").innerHTML = "";
+        return;
+      }
+      if (!rules.length) {
+        say("Write at least one rule.", "no");
+        return;
+      }
+      const res = L.packets.map((pk) => ({ pk, ...fwDecide(rules, pk) }));
+      const right = res.filter((r) => r.got === r.pk.want).length;
+      const tooMany = L.maxRules !== void 0 && rules.length > L.maxRules;
+      $("#results").innerHTML = `<div class="tw"><table class="res"><thead><tr><th>Test packet</th><th>Traffic</th><th>Should</th><th>Got</th><th>Rule</th></tr></thead><tbody>
+      ${res.map((r) => `<tr class="${r.got === r.pk.want ? "pass" : "fail"}"><td>${esc(r.pk.label)}</td>
+        <td class="mono small">${r.pk.proto.toUpperCase()} ${r.pk.src} &rarr; ${r.pk.dst}${r.pk.proto === "icmp" ? "" : ":" + r.pk.port}${r.pk.state === "est" ? ' <span class="tag">reply</span>' : ""}</td>
+        <td>${r.pk.want}</td><td><b>${r.got}</b></td><td>${r.by >= 0 ? `#${r.by + 1}` : '<span class="muted">none</span>'}</td></tr>`).join("")}</tbody></table></div>`;
+      const ok = right === res.length && !tooMany;
+      if (ok) say(`<b>All ${res.length} packets handled correctly.</b>`, "ok");
+      else if (right === res.length && tooMany) say(`Every packet is right, but you used ${rules.length} rules. The limit is ${L.maxRules}. Combine some.`, "no");
+      else say(`<b>${right} of ${res.length}</b> packets handled correctly. Look at the red rows: which rule decided them?`, "no");
+      submit(src, ok);
+    }
+    function runDetect(L, src) {
+      const { rules, errors } = parseIds(src);
+      if (errors.length) {
+        say(`<b>Fix this first:</b><br>${errors.map(esc).join("<br>")}`, "no");
+        $("#results").innerHTML = "";
+        return;
+      }
+      if (!rules.length) {
+        say("Write at least one rule.", "no");
+        return;
+      }
+      const res = L.events.map((ev) => ({ ev, ...idsDecide(rules, ev) }));
+      const missed = res.filter((r) => r.ev.want === "alert" && r.got === "quiet").length;
+      const noisy = res.filter((r) => r.ev.want === "quiet" && r.got === "alert").length;
+      $("#results").innerHTML = `<div class="tw"><table class="res"><thead><tr><th>Traffic to the web server</th><th>Should</th><th>Got</th></tr></thead><tbody>
+      ${res.map((r) => `<tr class="${r.got === r.ev.want ? "pass" : "fail"}"><td><span class="small muted">${esc(r.ev.label)}</span><br><span class="mono small">${esc(r.ev.payload)}</span></td><td>${r.ev.want}</td><td><b>${r.got}</b></td></tr>`).join("")}</tbody></table></div>`;
+      const ok = missed === 0 && noisy === 0;
+      if (ok) say("<b>Every attack caught, zero false alarms.</b>", "ok");
+      else say(`${missed ? `<b>${missed} missed attack${missed > 1 ? "s" : ""}</b> (false negatives). ` : ""}${noisy ? `<b>${noisy} false alarm${noisy > 1 ? "s" : ""}</b> (false positives).` : ""}`, "no");
+      submit(src, ok);
+    }
+    function wireLog(L) {
+      const view = $("#logView");
+      const count = $("#logCount");
+      const draw = (q) => {
+        const needle = q.trim().toLowerCase();
+        const lines = needle ? L.log.filter((l) => l.toLowerCase().includes(needle)) : L.log;
+        view.textContent = lines.join("\n") || "(no lines match)";
+        count.textContent = `Showing ${lines.length} of ${L.log.length} lines`;
+      };
+      draw("");
+      const f = $("#logFilter");
+      f.addEventListener("input", () => draw(f.value));
+      $("#ansForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (solved) return;
+        const v = $("#ans").value.trim().toLowerCase().replace(/\s+/g, "");
+        if (!v) return;
+        const ok = v === L.answer.toLowerCase();
+        if (ok) say(`<b>Correct: ${esc(L.answer)}.</b>`, "ok");
+        else say(`<b>"${esc(v)}" is not it.</b> Look again. Each wrong try costs 5 points.`, "no");
+        submit(v, ok);
+      });
+    }
+  }
+  function taskHtml(task) {
+    const parts = task.split(/\s*\(\d+\)\s*/);
+    if (parts.length < 3) return `<p class="nw-task"><b>Your task:</b> ${esc(task)}</p>`;
+    return `<p class="nw-task"><b>Your task:</b> ${esc(parts[0])}</p><ol class="nw-list">${parts.slice(1).map((x) => `<li>${esc(x.replace(/\.$/, ""))}</li>`).join("")}</ol>`;
+  }
+  function logBody(L) {
+    return `<div class="log-tools"><label for="logFilter" class="nw-label">Filter (shows only lines that contain this text)</label>
+    <input id="logFilter" class="log-filter" placeholder="try: DROP" autocomplete="off" spellcheck="false"></div>
+    <div class="log-box"><div class="log-head mono">${esc(L.header)}</div><pre id="logView" class="log-view" tabindex="0"></pre></div>
+    <p class="small muted" id="logCount"></p>
+    <form id="ansForm" class="ans-row"><label for="ans" class="nw-label">${esc(L.question)}</label>
+      <div class="pc-row"><input id="ans" placeholder="${esc(L.placeholder)}" autocomplete="off" spellcheck="false"><button class="btn btn-primary">Check answer</button></div></form>`;
+  }
+
   // src/main.ts
   var app = $("#app");
   function renderHeader(active) {
@@ -1519,10 +2362,24 @@
         return showProfile();
       case "grad":
         return showGrad();
+      case "nightwatch":
+        renderHeader("nightwatch");
+        return showNightWatch(app, go);
       default:
         return showWelcome();
     }
   }
+  (() => {
+    const nav = document.querySelector(".nav");
+    if (nav && !nav.querySelector('[data-go="nightwatch"]')) {
+      const a = document.createElement("a");
+      a.href = "#";
+      a.dataset.go = "nightwatch";
+      a.textContent = "Night Watch";
+      a.className = "nav-night";
+      nav.insertBefore(a, nav.querySelector('[data-go="help"]'));
+    }
+  })();
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", (e) => {
     e.preventDefault();
     go(a.dataset.go || "map");
@@ -1611,6 +2468,8 @@
     }).join("")}
       <button class="lot grad${p.done.length === CHAPTERS.length ? " next" : " locked"}" data-go-grad ${p.done.length === CHAPTERS.length ? "" : "disabled"}>
         <span class="lot-name">Graduation</span><span class="lot-topic">${p.done.length === CHAPTERS.length ? "Get your certificate" : "Finish all 8 places to unlock"}</span></button>
+      <button class="lot night${nightWatchOpen() ? "" : " locked"}" data-go-nw ${nightWatchOpen() ? "" : "disabled"}>
+        <span class="lot-name">Night Watch</span><span class="lot-topic">${nightWatchOpen() ? `Advanced: 12 hard levels \xB7 ${p.nwSolved.length}/12 solved` : "Advanced levels. Unlocks after graduation"}</span></button>
     </div>
   </section>
   <section class="map-side">
@@ -1621,6 +2480,8 @@
     app.querySelectorAll(".lot[data-ch]").forEach((b) => b.addEventListener("click", () => startChapter(CHAPTERS.find((c) => c.id === b.dataset.ch))));
     const g = app.querySelector("[data-go-grad]");
     if (g) g.addEventListener("click", () => go("grad"));
+    const nwb = app.querySelector("[data-go-nw]");
+    if (nwb) nwb.addEventListener("click", () => go("nightwatch"));
     app.querySelectorAll("a[data-go]").forEach((a) => a.addEventListener("click", (e) => {
       e.preventDefault();
       go(a.dataset.go);
@@ -1876,6 +2737,7 @@
       <li><b>Finish bonus:</b> 25 for every chapter, plus 25 more for 3 stars.</li>
       <li>Replaying a chapter only counts if you beat your best score.</li></ul>
     <h2>Stars</h2><p>3 stars for 90% right or better. 2 stars for 70% or better. 1 star for finishing.</p>
+    <h2>Night Watch</h2><p>After graduation, Night Watch opens 12 advanced levels. You write firewall rules, hunt through logs, and tune detection rules. Each solved level gives a passcode that unlocks the next one on any computer.</p>
     <h2>Ranks</h2><p>Rookie, Cadet, Gate Guard, Analyst, Defender, and Chief of Security.</p>
     <h2>Keyboard</h2><p>In sorting games press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>. At the gate press <kbd>A</kbd> to allow and <kbd>B</kbd> to block.</p>
     <h2>What gets saved?</h2><p>${trackingOn() ? "Your name, class code, answers, scores, and how long each step took are sent to your teacher's private spreadsheet. Nothing else." : "Your progress stays in this browser. Nothing is sent anywhere."}</p></section>`;
@@ -1931,9 +2793,10 @@
       <div class="cert-sign">${ada(48)}<div><b>Officer Ada</b><small>Chief of Security, Byteville</small></div><span class="cert-date">${(/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { year: "numeric", month: "long", day: "numeric" })}</span></div>
     </div>
     <p class="center muted">Take a screenshot to share it with your teacher. Want more stars? Replay any chapter from the map.</p>
-    <div class="row-gap center"><button class="btn" id="gm">Back to the map</button></div>
+    <div class="row-gap center"><button class="btn btn-primary btn-big" id="gnw">Start Night Watch (advanced)</button><button class="btn" id="gm">Back to the map</button></div>
   </section>`;
     $("#gm").addEventListener("click", () => go("map"));
+    $("#gnw").addEventListener("click", () => go("nightwatch"));
   }
   go(store.profile ? "map" : "welcome");
 })();
