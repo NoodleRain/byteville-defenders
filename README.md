@@ -66,7 +66,7 @@ Setting it up takes the **Teacher Kit**: the step-by-step installation guide, th
 **To get it:**
 
 1. **Fork** this repository (button at the top right).
-2. **Request the Teacher Kit** by opening an issue with the **Teacher Kit request** template, or by contacting the author at **[YOUR CONTACT EMAIL]**. Please include your name, school, and the course you teach.
+2. **Request the Teacher Kit** by opening an issue with the **Teacher Kit request** template, or by contacting the author at **mailto:noodlerain9@gmail.com**. Please include your name, school, and the course you teach.
 
 Every school gets its own secret seed, so Night Watch answers and passcodes are different for every installation. An answer key shared online for one school won't work at another.
 
